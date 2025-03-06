@@ -27,6 +27,19 @@ struct Vec4f
 	float a;
 };
 
+struct Vec9f 
+{
+	float r_a;
+	float r_b;
+	float r_c;
+	float g_a;
+	float g_b;
+	float g_c;
+	float b_a;
+	float b_b;
+	float b_c;
+};
+
 struct Mat4x4f 
 {
 	Vec4f row1;

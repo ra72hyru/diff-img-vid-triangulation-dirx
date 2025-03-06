@@ -55,7 +55,7 @@ template<typename T>
 class SharedByteAddressBuffer 
 {
 	public:
-		SharedByteAddressBuffer() : pBuffer(NULL), pStaging(NULL), pDynamic(NULL), pShaderResourceView(NULL), pUnorderedAccessView(NULL), byte_width(0)
+		SharedByteAddressBuffer() : pBuffer(NULL), pStaging(NULL), pDynamic(NULL), pShaderResourceView(NULL), pUnorderedAccessView(NULL), byte_width(0), bind_flags(0), CPUaccess_flags(0)
 		{
 		}
 
@@ -63,6 +63,9 @@ class SharedByteAddressBuffer
 		{
 			byte_width = calculateByteWidth();
 			
+			bind_flags = bindFlags;
+			CPUaccess_flags = CPUaccessFlags;
+
 			D3D11_BUFFER_DESC buf_desc;
 			ZeroMemory(&buf_desc, sizeof(D3D11_BUFFER_DESC));
 			buf_desc.ByteWidth = (UINT)(byte_width);
@@ -147,12 +150,43 @@ class SharedByteAddressBuffer
 
 		void gpuToCpu(ID3D11DeviceContext* immediateContext) 
 		{
-			//immediateContext->CopyResource()
+			immediateContext->CopyResource(pStaging, pBuffer);
+
+			int numElements = (int)buffer_content.size() * sizeof(T);
+			D3D11_MAPPED_SUBRESOURCE mapped_subresource;
+
+			HRESULT hr;
+			hr = immediateContext->Map(pStaging, 0, D3D11_MAP_READ, 0, &mapped_subresource);
+
+			if (SUCCEEDED(hr)) 
+			{
+				memcpy_s(buffer_content.data(), numElements, mapped_subresource.pData, numElements);
+				immediateContext->Unmap(pStaging, 0);
+			}
 		};
 
-		void cpuToGpu(ID3D11DeviceContext* immediateContext)
+		void cpuToGpu(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
 		{
+			if (buffer_content.size() * sizeof(T) < byte_width) 
+			{
+				int numElements = (int)buffer_content.size() * sizeof(T);
+				D3D11_MAPPED_SUBRESOURCE mapped_subresource;
 
+				HRESULT hr;
+				hr = immediateContext->Map(pDynamic, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_subresource);
+
+				if (SUCCEEDED(hr)) 
+				{
+					memcpy_s(mapped_subresource.pData, numElements, buffer_content.data(), numElements);
+					immediateContext->Unmap(pDynamic, 0);
+				}
+				immediateContext->CopyResource(pBuffer, pDynamic);
+			}
+			else 
+			{
+				releaseBuffer();
+				createBuffer(device, bind_flags, CPUaccess_flags);
+			}
 		};
 
 		ID3D11Buffer* getBuffer() { return pBuffer; };
@@ -171,6 +205,9 @@ class SharedByteAddressBuffer
 		};
 
 		size_t byte_width;
+
+		UINT bind_flags;
+		UINT CPUaccess_flags;
 
 		ID3D11Buffer* pBuffer;
 		ID3D11Buffer* pStaging;

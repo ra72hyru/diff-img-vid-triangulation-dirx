@@ -50,5 +50,8 @@
     <FxCompile Include="shader\PixelShader.hlsl" />
     <FxCompile Include="shader\ComputeConstantColor.hlsl" />
     <FxCompile Include="shader\UpdatePositionsRTT.hlsl" />
+    <FxCompile Include="shader\ComputeLinearGradients.hlsl" />
+    <FxCompile Include="shader\PSLinearGradients.hlsl" />
+    <FxCompile Include="shader\CCC_bi_interp.hlsl" />
   </ItemGroup>
 </Project>

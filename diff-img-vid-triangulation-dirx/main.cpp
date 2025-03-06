@@ -99,7 +99,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		immediateContext->ClearRenderTargetView(renderTargetView, clear_color);
 		immediateContext->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH, 1, 0);
 		
-		triangulator->draw(immediateContext);
+		triangulator->draw(immediateContext, en_constant);
 		d3d->EndFrame();
 		double a = 10;
 	}
