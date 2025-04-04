@@ -1,6 +1,6 @@
 ByteAddressBuffer positions : register(t0);
 ByteAddressBuffer indices : register(t1);
-RWByteAddressBuffer colors : register(u0);
+RWByteAddressBuffer coefficients : register(u0);
 Texture2D image : register(t2);
 
 static float2 points[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
@@ -129,7 +129,7 @@ bool isLeft(float2 n, float2 a, float2 q)
     return false;
 }
 
-float3 bilinear_interpolation(float3 K, float3 Kx, float3 Ky, float3 Kxy, float2 m, float2 t, float2 cd)
+float3 bilinear_interpolation(float3 K, float3 Kx, float3 Ky, float3 Kxy, float2 m, float2 t, float2 cd, inout float3 xI, inout float3 yI)
 {
     float3 interp_1 = K * (0.5 * (m.y - m.x) * (cd.y * cd.y - cd.x * cd.x) + (t.y - t.x) * (cd.y - cd.x));
     float3 interp_2 = Kx * ((1.0 / 3.0) * (m.y - m.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y - t.x) * (cd.y * cd.y - cd.x * cd.x));
@@ -137,10 +137,37 @@ float3 bilinear_interpolation(float3 K, float3 Kx, float3 Ky, float3 Kxy, float2
     float3 interp_4 = 0.5 * Kxy * (0.25 * (m.y * m.y - m.x * m.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + (2.0 / 3.0) * (m.y * t.y - m.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y * t.y - t.x * t.x) * (cd.y * cd.y - cd.x * cd.x));
 
     float3 interp = abs(interp_1 + interp_2 + interp_3 + interp_4);
+    
+    interp_1 = K * (1.0 / 3.0 * (m.y - m.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y - t.x) * (cd.y * cd.y - cd.x * cd.x));
+    interp_2 = Kx * (0.25 * (m.y - m.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + 1.0 / 3.0 * (t.y - t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x));
+    interp_3 = 0.5 * Ky * (0.25 * (m.y * m.y - m.x * m.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + 2.0 / 3.0 * (m.y * t.y - m.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y * t.y - t.x * t.x) * (cd.y * cd.y - cd.x * cd.x));
+    interp_4 = 0.5 * Kxy * (0.2 * (m.y * m.y - m.x * m.x) * (cd.y * cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x * cd.x) + 0.5 * (m.y * t.y - m.x * t.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + 1.0 / 3.0 * (t.y * t.y - t.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x));
+    
+    xI += abs(interp_1 + interp_2 + interp_3 + interp_4);
+    
+    interp_1 = 0.5 * K * (1.0 / 3.0 * (m.y * m.y - m.x * m.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + (m.y * t.y - m.x * t.x) * (cd.y * cd.y - cd.x * cd.x) + (t.y * t.y - t.x * t.x) * (cd.y - cd.x));
+    interp_2 = 0.5 * Kx * (0.25 * (m.y * m.y - m.x * m.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + 2.0 / 3.0 * (m.y * t.y - m.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y * t.y - t.x * t.x) * (cd.y * cd.y - cd.x * cd.x));
+    interp_3 = 1.0 / 3.0 * Ky * (0.25 * (m.y * m.y * m.y - m.x * m.x * m.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + (m.y * m.y * t.y - m.x * m.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 1.5 * (m.y * t.y * t.y - m.x * t.x * t.x) * (cd.y * cd.y - cd.x * cd.x) + (t.y * t.y * t.y - t.x * t.x * t.x) * (cd.y - cd.x));
+    interp_4 = 1.0 / 3.0 * Kxy * (0.2 * (m.y * m.y * m.y - m.x * m.x * m.x) * (cd.y * cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x * cd.x) + 0.75 * (m.y * m.y * t.y - m.x * m.x * t.x) * (cd.y * cd.y * cd.y * cd.y - cd.x * cd.x * cd.x * cd.x) + (m.y * t.y * t.y - m.x * t.x * t.x) * (cd.y * cd.y * cd.y - cd.x * cd.x * cd.x) + 0.5 * (t.y * t.y * t.y - t.x * t.x * t.x) * (cd.y * cd.y - cd.x * cd.x));
+    
+    yI += abs(interp_1 + interp_2 + interp_3 + interp_4);
     return interp;
 }
 
-float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
+void integrate_helper(float m1, float m2, float t1, float t2, float c, float d, inout float3 r1, inout float3 r2)
+{
+    float d3 = d * d * d;
+    float c3 = c * c * c;
+    
+    r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+    r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+    r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+    r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+    r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+    r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
+}
+
+float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size, inout float3 r1, inout float3 r2, inout float3 xI, inout float3 yI)
 {
     //sorting
     float2 ordered_plgn[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
@@ -249,8 +276,8 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
             float c = min(A.x, B.x);
             float d = max(A.x, B.x);
             
-            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
-
+            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+            integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
         }
         else if (abs(tri_bc.x) <= EPS)
         {
@@ -262,7 +289,8 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
             float c = min(A.x, B.x);
             float d = max(A.x, B.x);
             
-            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+            integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
         }
         else if (abs(tri_ab.x) <= EPS)
         {
@@ -274,7 +302,8 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
             float c = min(A.x, C.x);
             float d = max(A.x, C.x);
             
-            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+            result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+            integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
         }
         else
         {
@@ -288,14 +317,16 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
                 float c = min(A.x, C.x);
                 float d = max(A.x, C.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
                 
                 m1 = tri_bc.y / tri_bc.x;
                 t1 = C.y - m1 * C.x;
                 c = min(B.x, C.x);
                 d = max(B.x, C.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
             }
             else if (A.x < B.x && B.x < C.x || C.x < B.x && B.x < A.x)
             {
@@ -307,14 +338,16 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
                 float c = min(A.x, B.x);
                 float d = max(A.x, B.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
                 
                 m1 = tri_bc.y / tri_bc.x;
                 t1 = B.y - m1 * B.x;
                 c = min(C.x, B.x);
                 d = max(C.x, B.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
             }
             else if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
             {
@@ -326,20 +359,61 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
                 float c = min(A.x, C.x);
                 float d = max(A.x, C.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
                 
                 m1 = tri_ab.y / tri_ab.x;
                 t1 = C.y - m1 * C.x;
                 c = min(A.x, B.x);
                 d = max(A.x, B.x);
                 
-                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d));
+                result += bilinear_interpolation(K, Kx, Ky, Kxy, float2(m1, m2), float2(t1, t2), float2(c, d), xI, yI);
+                integrate_helper(m1, m2, t1, t2, c, d, r1, r2);
             }
         }
     }
     return result;
 }
-//TODO: mit anderem intersect testen, CLG_bi_interp.hlsl
+
+float3x3 cholesky(float3x3 A)
+{
+    float M[9] =
+    {
+        A._m00, A._m01, A._m02,
+		A._m10, A._m11, A._m12,
+		A._m20, A._m21, A._m22
+    };
+
+    float L[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < (i + 1); j++)
+        {
+            float s = 0;
+            for (int k = 0; k < j; k++)
+                s += L[i * 3 + k] * L[j * 3 + k];
+            L[i * 3 + j] = (i == j) ?
+				sqrt(M[i * 3 + i] - s) :
+				(1.0 / L[j * 3 + j] * (M[i * 3 + j] - s));
+        }
+    }
+    return float3x3(L[0], L[1], L[2],
+		L[3], L[4], L[5],
+		L[6], L[7], L[8]);
+}
+
+float3 cholesky_solve(float3x3 mL, float3 b)
+{
+    float3 y = float3(b.x / mL._m00,
+		b.y / mL._m11 - (b.x * mL._m10) / (mL._m00 * mL._m11),
+		(b.x * mL._m10 * mL._m21) / (mL._m00 * mL._m11 * mL._m22) - (b.y * mL._m21) / (mL._m11 * mL._m22) - (b.x * mL._m20) / (mL._m00 * mL._m22) + b.z / mL._m22);
+    float3 x = float3(
+		(mL._m10 * mL._m21 * y.z) / (mL._m00 * mL._m11 * mL._m22) - (mL._m20 * y.z) / (mL._m00 * mL._m22) - (mL._m10 * y.y) / (mL._m00 * mL._m11) + y.x / mL._m00,
+		y.y / mL._m11 - (mL._m21 * y.z) / (mL._m11 * mL._m22),
+		y.z / mL._m22);
+    return x;
+}
+
 [numthreads(128, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
@@ -373,20 +447,28 @@ void main(uint DTid : SV_DispatchThreadID)
     int pixel_left_x = ceil(max_x);
     int pixel_top_y = ceil(max_y);
     
-    float3 color = float3(0, 0, 0);
+    //float3 color = float3(0, 0, 0);
+    
+    float x_2 = 0.0, y_2 = 0.0, x = 0.0, y = 0.0, xy = 0.0, n = 0.0;
+    float3 xI = float3(0.0, 0.0, 0.0);
+    float3 yI = float3(0.0, 0.0, 0.0);
+    float3 I = float3(0.0, 0.0, 0.0);
+    
+    //float3 r123 = float3(0, 0, 0), r456 = float3(0, 0, 0);
+    
     float3 K, Kx, Ky, Kxy;
     float x1, x2, y1, y2;
     for (int i = pixel_right_x; i < pixel_left_x; i++)
     {
         for (int j = pixel_bottom_y; j < pixel_top_y; j++)
         {
-            float4 col_bl = image.Load(int3(max(0, i - 1),                       max(0, j - 1), 0));
-            float4 col_bm = image.Load(int3(i,                                   max(0, j - 1), 0));
-            float4 col_br = image.Load(int3(min(dimensions.x, i + 1),            max(0, j - 1), 0));
-            float4 col_ml = image.Load(int3(max(0, i - 1),                                   j, 0));
-            float4 col_mm = image.Load(int3(i,                                               j, 0));
-            float4 col_mr = image.Load(int3(min(dimensions.x, i + 1),                        j, 0));
-            float4 col_tl = image.Load(int3(max(0, i - 1), min(dimensions.y,            j + 1), 0));
+            float4 col_bl = image.Load(int3(max(0, i - 1), max(0, j - 1), 0));
+            float4 col_bm = image.Load(int3(i, max(0, j - 1), 0));
+            float4 col_br = image.Load(int3(min(dimensions.x, i + 1), max(0, j - 1), 0));
+            float4 col_ml = image.Load(int3(max(0, i - 1), j, 0));
+            float4 col_mm = image.Load(int3(i, j, 0));
+            float4 col_mr = image.Load(int3(min(dimensions.x, i + 1), j, 0));
+            float4 col_tl = image.Load(int3(max(0, i - 1), min(dimensions.y, j + 1), 0));
             float4 col_tm = image.Load(int3(i, min(dimensions.y, j + 1), 0));
             float4 col_tr = image.Load(int3(min(dimensions.x, i + 1), min(dimensions.y, j + 1), 0));
             float4 cols[9] =
@@ -400,6 +482,12 @@ void main(uint DTid : SV_DispatchThreadID)
                 for (int bu = 0; bu < 2; bu++)
                 {
                     int size = 0;
+                    
+                    //maybe take care at the boundary?
+                    x1 = i - 1 + lr + 0.5;
+                    x2 = i + lr + 0.5;
+                    y1 = j - 1 + bu + 0.5;
+                    y2 = j + bu + 0.5;
             
                     K = cols[0 + bu * 3 + lr * 1].xyz * x2 * y2
                             - cols[1 + bu * 3 + lr * 1].xyz * x1 * y2
@@ -423,16 +511,10 @@ void main(uint DTid : SV_DispatchThreadID)
                     
                     bool whole_pixel = true;
                     
-                    //maybe take care at the boundary?
-                    x1 = i - 1 + lr + 0.5f;
-                    x2 = i + lr + 0.5f;
-                    y1 = j - 1 + bu + 0.5f;
-                    y2 = j + bu + 0.5f;
-                    
-                    float2 x1y1 = float2(i + (float) lr / 2.0f, j + (float) bu / 2.0f);
-                    float2 x2y1 = float2(i + ((float) lr + 1) / 2.0f, j + (float) bu / 2.0f);
-                    float2 x1y2 = float2(i + (float) lr / 2.0f, j + ((float) bu + 1) / 2.0f);
-                    float2 x2y2 = float2(i + ((float) lr + 1) / 2.0f, j + ((float) bu + 1) / 2.0f);
+                    float2 x1y1 = float2(i + (float) lr / 2.0, j + (float) bu / 2.0);
+                    float2 x2y1 = float2(i + ((float) lr + 1) / 2.0, j + (float) bu / 2.0);
+                    float2 x1y2 = float2(i + (float) lr / 2.0, j + ((float) bu + 1) / 2.0);
+                    float2 x2y2 = float2(i + ((float) lr + 1) / 2.0, j + ((float) bu + 1) / 2.0);
 
                     if (point_inside_triangle(x1y1, A, B, C))
                     {
@@ -460,7 +542,7 @@ void main(uint DTid : SV_DispatchThreadID)
                         whole_pixel = false;
             
                     if (whole_pixel)
-                    {   
+                    {
                         //f(Q_11) = bl, ml, bm, mm --> 0, 3, 1, 4 --> cols[bu * 3 + lr * 1]
                         //f(Q_21) = bm, mm, br, mr --> 1, 4, 2, 5 --> cols[1 + bu * 3 + lr * 1]
                         //f(Q_12) = ml, tl, mm, tm --> 3, 6, 4, 7 --> cols[3 + bu * 3 + lr * 1]
@@ -469,11 +551,23 @@ void main(uint DTid : SV_DispatchThreadID)
                         float b1a1 = x1y2.y - x1y1.y;
                         float d2c2 = x2y1.x * x2y1.x - x1y1.x * x1y1.x;
                         float b2a2 = x1y2.y * x1y2.y - x1y1.y * x1y1.y;
-                        color += K * b1a1 * d1c1 + Kx * 0.5f * d2c2 * b1a1 + Ky * 0.5f * d1c1 * b2a2 + Kxy * 0.25f * d2c2 * b2a2;
-                        //color += 0.25f * float3((float) i / (float) dimensions.x, (float) j / (float) dimensions.y, (float) i * j / ((float) dimensions.x * (float) dimensions.y));
-                        //tri_area += 0.25f;
+                        float d3c3 = x2y1.x * x2y1.x * x2y1.x - x1y1.x * x1y1.x * x1y1.x;
+                        float b3a3 = x1y2.y * x1y2.y * x1y2.y - x1y1.y * x1y1.y * x1y1.y;
+                        I += K * b1a1 * d1c1 + Kx * 0.5 * d2c2 * b1a1 + Ky * 0.5 * d1c1 * b2a2 + Kxy * 0.25 * d2c2 * b2a2;
+                        
+                        x_2 += (1.0 / 3.0) * abs(pow(x2y1.x, 3) - pow(x1y1.x, 3));
+                        y_2 += (1.0 / 3.0) * abs(pow(x1y2.y, 3) - pow(x1y1.y, 3));
+                        float x_pl = 0.5 * abs(pow(x2y1.x, 2) - pow(x1y1.x, 2));
+                        float y_pl = 0.5 * abs(pow(x1y2.y, 2) - pow(x1y1.y, 2));
+                        x += x_pl;
+                        y += y_pl;
+                        xy += x_pl * y_pl; 
+                        n += 0.25;
+                        
+                        xI += 0.5 * K * b1a1 * d2c2 + 1.0 / 3.0 * Kx * b1a1 * d3c3 + 0.25 * Ky * b2a2 * d2c2 + 1.0 / 6.0 * Kxy * b2a2 * d3c3;
+                        yI += 0.5 * K * b2a2 * d1c1 + 0.25 * Kx * b2a2 * d2c2 + 1.0 / 3.0 * Ky * b3a3 * d1c1 + 1.0 / 6.0 * Kxy * b3a3 * d2c2;
                     }
-                    else 
+                    else
                     {
                         if (A.x >= i + (lr / 2.0) && A.x <= i + (lr + 1) / 2.0 && A.y >= j + bu / 2.0 && A.y <= j + (bu + 1) / 2.0)
                         {
@@ -672,7 +766,15 @@ void main(uint DTid : SV_DispatchThreadID)
                 
                         if (size >= 3)
                         {
-                            color += integrate(K, Kx, Ky, Kxy, size);
+                            float3 r123 = float3(0, 0, 0);
+                            float3 r456 = float3(0, 0, 0);
+                            I += integrate(K, Kx, Ky, Kxy, size, r123, r456, xI, yI);
+                            x_2 += r123.x;
+                            y_2 += r123.y;
+                            x += r123.z;
+                            y += r456.x;
+                            xy += r456.y;
+                            n += r456.z;
                         }
                     }
                 }
@@ -680,6 +782,43 @@ void main(uint DTid : SV_DispatchThreadID)
         }
     }
 
-    color /= tri_area;
-    colors.Store3(DTid * 12, asuint(color));
+    float3x3 M = { x_2, xy, x, xy, y_2, y, x, y, n };
+    float3x3 L = cholesky(M);
+    
+    const float EPS = 1E-5;
+    float3 abcR, abcG, abcB;
+    if (L._m00 > EPS && L._m11 > EPS && L._m22 > EPS)
+    {
+        float3 bR = float3(xI.x, yI.x, I.x);
+        float3 bG = float3(xI.y, yI.y, I.y);
+        float3 bB = float3(xI.z, yI.z, I.z);
+
+        abcR = cholesky_solve(L, bR);
+        abcG = cholesky_solve(L, bG);
+        abcB = cholesky_solve(L, bB);
+    }
+    else
+    {
+        abcR = float3(0, 0, I.x / (float) n);
+        abcG = float3(0, 0, I.y / (float) n);
+        abcB = float3(0, 0, I.z / (float) n);
+    }
+    
+    /*abcR = DTid == 51 ? float3(0, 0, x2) : abcR;
+    abcG = DTid == 51 ? float3(0, 0, 1) : abcG;
+    abcB = DTid == 51 ? float3(0, 0, 1) : abcB;*/
+    
+    /*if (1 && DTid == 51)
+    {
+        coefficients.Store3(DTid * 36, asuint(float3(0, 0, x2)));
+        coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, 1)));
+        coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, 1)));
+        return;
+    }*/
+    /*coefficients.Store3(DTid * 36, asuint(float3(0, 0, 1)));
+    coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, 1)));
+    coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, 1)));*/
+    coefficients.Store3(DTid * 36, asuint(abcR));
+    coefficients.Store3(DTid * 36 + 12, asuint(abcG));
+    coefficients.Store3(DTid * 36 + 24, asuint(abcB));
 }

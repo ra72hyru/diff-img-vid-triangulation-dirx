@@ -1,5 +1,5 @@
 ByteAddressBuffer indices : register(t0);
-ByteAddressBuffer colors : register(t1);
+ByteAddressBuffer gradients : register(t1);
 ByteAddressBuffer neighbor_list : register(t2);
 ByteAddressBuffer index_in_neighbor_list : register(t3);
 ByteAddressBuffer neighbor_count : register(t4);
@@ -409,41 +409,31 @@ void main( uint DTid : SV_DispatchThreadID )
 {
     float2 gradient = float2(0.0f, 0.0f);
     float2 gr = float2(0.0f, 0.0f);
-    uint offset = index_in_neighbor_list.Load(DTid.x * 4);
+    uint offset = index_in_neighbor_list.Load(DTid.x * 4) * 4;
     uint count = neighbor_count.Load(DTid.x * 4);
-    //TODO: kleineres intersect probieren; nicht alle Pixel durchgehen sondern nur nächsten, je nachdem, in welche Richtung die Kante geht
     
     [unroll(15)]
     for (uint i = 0; i < count; i++)
     {
         uint tri_index = neighbor_list.Load(offset + i * 4);
-        float3 tri_color = asfloat(colors.Load3(tri_index * 12));
         uint3 ind = indices.Load3(tri_index * 12);
-        float2 A, B, C;
-        
-        if (ind.x == DTid.x)
+        float2 neighbor_gradient;
+        if (ind.x == DTid)
         {
-            C = asfloat(positions.Load2(ind.x * 8));
-            A = asfloat(positions.Load2(ind.y * 8));
-            B = asfloat(positions.Load2(ind.z * 8));
+            neighbor_gradient = asfloat(gradients.Load2(tri_index * 24 + 16));
         }
-        else if (ind.y == DTid.x)
+        else if (ind.y == DTid)
         {
-            C = asfloat(positions.Load2(ind.y * 8));
-            A = asfloat(positions.Load2(ind.x * 8));
-            B = asfloat(positions.Load2(ind.z * 8));
+            neighbor_gradient = asfloat(gradients.Load2(tri_index * 24 + 8));
         }
         else
         {
-            C = asfloat(positions.Load2(ind.z * 8));
-            A = asfloat(positions.Load2(ind.x * 8));
-            B = asfloat(positions.Load2(ind.y * 8));
+            neighbor_gradient = asfloat(gradients.Load2(tri_index * 24));
         }
         
-        gradient.x += 1.0f / 3.0f * gradient_rtt(tri_color, 1.0f, 0.0f, A, B, C);
-        gradient.y += 1.0f / 3.0f * gradient_rtt(tri_color, 0.0f, 1.0f, A, B, C);
+        gradient += neighbor_gradient;
     }
- 
+    
     float2 position = asfloat(positions.Load2(DTid.x * 8));
     if (position.x <= 0.0f || position.x >= width)
         gradient.x = 0;
@@ -460,4 +450,5 @@ void main( uint DTid : SV_DispatchThreadID )
     position.y = min(max(0, position.y), height);
     
     positions.Store2(DTid.x * 8, asuint(position));
+    return;
 }

@@ -261,6 +261,23 @@ class ConstantBuffer
 			SAFE_RELEASE(pBuffer);
 		};
 
+		void updateBuffer(ID3D11DeviceContext* immediateContext) 
+		{
+			if (!pBuffer)
+				return;
+
+			D3D11_MAPPED_SUBRESOURCE mapped_subresource;
+			
+			HRESULT hr;
+			hr = immediateContext->Map(pBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_subresource);
+
+			if (SUCCEEDED(hr)) 
+			{
+				*(T*)mapped_subresource.pData = buffer_content;
+				immediateContext->Unmap(pBuffer, 0);
+			}
+		}
+
 		ID3D11Buffer* getBuffer() { return pBuffer; };
 
 		T buffer_content;

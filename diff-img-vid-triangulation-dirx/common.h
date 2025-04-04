@@ -27,6 +27,16 @@ struct Vec4f
 	float a;
 };
 
+struct Vec6f 
+{
+	float grABCx;
+	float grABCy;
+	float grACBx;
+	float grACBy;
+	float grBCAx;
+	float grBCAy;
+};
+
 struct Vec9f 
 {
 	float r_a;
@@ -38,6 +48,11 @@ struct Vec9f
 	float b_a;
 	float b_b;
 	float b_c;
+};
+
+struct Vec144f 
+{
+	float colors[144];
 };
 
 struct Mat4x4f 

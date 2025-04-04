@@ -53,5 +53,11 @@
     <FxCompile Include="shader\ComputeLinearGradients.hlsl" />
     <FxCompile Include="shader\PSLinearGradients.hlsl" />
     <FxCompile Include="shader\CCC_bi_interp.hlsl" />
+    <FxCompile Include="shader\ComputeGradient_cpct.hlsl" />
+    <FxCompile Include="shader\CLG_bi_interp.hlsl" />
+    <FxCompile Include="shader\ComputeGradient_cplg.hlsl" />
+    <FxCompile Include="shader\ComputeGradient_bipct.hlsl" />
+    <FxCompile Include="shader\FiniteDifferences.hlsl" />
+    <FxCompile Include="shader\UpdatePositionsFinDiff.hlsl" />
   </ItemGroup>
 </Project>

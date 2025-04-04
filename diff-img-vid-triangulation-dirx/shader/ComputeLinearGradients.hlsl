@@ -1,10 +1,9 @@
 ByteAddressBuffer positions : register(t0);
 ByteAddressBuffer indices : register(t1);
-RWByteAddressBuffer coefficients : register(u0);
 Texture2D image : register(t2);
+RWByteAddressBuffer coefficients : register(u0);
 
 static float2 points[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
-static uint size;
 
 float cross(float2 v, float2 w)
 {
@@ -15,8 +14,8 @@ int intersect_segments(float2 o1, float2 d1, float2 o2, float2 d2, out float2 i0
 {
     float2 w = o1 - o2;
     float D = cross(d1, d2);
-
-    if (abs(D) < 1E-5)
+    
+    if (abs(D) < 1E-8)
     {
         float para1 = cross(d1, w);
         float para2 = cross(d2, w);
@@ -52,8 +51,8 @@ int intersect_segments(float2 o1, float2 d1, float2 o2, float2 d2, out float2 i0
             return 0;
         }
 
-        t0 < 0 ? 0 : t0;
-        t1 > 1 ? 1 : t1;
+        t0 = t0 < 0 ? 0 : t0;
+        t1 = t1 > 1 ? 1 : t1;
 
         if (t0 == t1)
         {
@@ -94,23 +93,50 @@ float signed_triangle_area(float2 A, float2 B, float2 C)
 
 bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
 {
-    float s = 1 / (2 * signed_triangle_area(A, B, C)) * (A.y * C.x - A.x * C.y + p.x * (C.y - A.y) + p.y * (A.x - C.x));
-    float t = 1 / (2 * signed_triangle_area(A, B, C)) * (A.x * B.y - A.y * B.x + p.x * (A.y - B.y) + p.y * (B.x - A.x));
+    float s = 1.0 / (2.0 * signed_triangle_area(A, B, C)) * (A.y * C.x - A.x * C.y + p.x * (C.y - A.y) + p.y * (A.x - C.x));
+    float t = 1.0 / (2.0 * signed_triangle_area(A, B, C)) * (A.x * B.y - A.y * B.x + p.x * (A.y - B.y) + p.y * (B.x - A.x));
 
-    if (s >= 0 && t >= 0 && 1 - s - t >= 0)
+    if (s >= -1E-5 && t >= -1E-5 && 1 - s - t >= -1E-5)
         return true;
     return false;
 }
 
-void append(float2 p)
+bool point_inside_triangle_(float2 p, float2 A, float2 B, float2 C)
+{
+    float2 ab = B - A;
+    float2 bc = C - B;
+    float2 ca = A - C;
+    
+    float2 ap = p - A;
+    float2 bp = p - B;
+    float2 cp = p - C;
+    
+    float a = ab.x * ap.y - ab.y * ap.x;
+    float b = bc.x * bp.y - bc.y * bp.x;
+    float c = ca.x * cp.y - ca.y * cp.x;
+    
+    if (a < 0 && b < 0 && c < 0)
+        return true;
+    if (a > 0 && b > 0 && c > 0)
+        return true;
+    if (a == 0 && b * c >= 0)
+        return true;
+    if (b == 0 && a * c >= 0)
+        return true;
+    if (c == 0 && a * b >= 0)
+        return true;
+    return false;
+}
+
+void append(float2 p, inout int size)
 {
     points[size] = p;
     size += 1;
 }
 
-bool point_in_polygon(float2 p)
+bool point_in_polygon(float2 p, in int size)
 {
-    const float eps = 1E-5;
+    const float eps = 1E-3;
     for (int i = 0; i < size; i++)
     {
         float2 ppi = p - points[i];
@@ -120,424 +146,282 @@ bool point_in_polygon(float2 p)
     return false;
 }
 
-void integrate_over_polygon(inout float3 r1, inout float3 r2)
+bool isLeft(float2 n, float2 a, float2 q)
+{
+    float2 aq = q - a;
+    if (dot(aq, n) > 0)
+    {
+        return true;
+    }
+    return false;
+}
+
+void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
 {
     //sorting
-    float2 mean = float2(0.0f, 0.0f);
+    float2 ordered_plgn[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
+    int ordered_size = 0;
+    int local_size = size;
+    float2 local_plgn[7] = { points[0], points[1], points[2], points[3], points[4], points[5], points[6] };
     
-    for (int ii = 0; ii < size; ii++)
-    {
-        mean += points[ii];
-    }
-    mean /= size;
-    
-    for (int j = 0; j < size; j++)
-    {
-        for (int k = 0; k < size - j; k++)
-        {
-            float2 pk_m = points[k] - mean;
-            float2 pk1_m = points[k + 1] - mean;
-            if (pk_m.x < pk1_m.x)
-            {
-                float2 temp = points[k];
-                points[k] = points[k + 1];
-                points[k + 1] = temp;
-            }
-            else if (abs(pk_m.x - pk1_m.x) < 1E-5)
-            {
-                if (sqrt(pk_m.x * pk_m.x + pk_m.y * pk_m.y) < sqrt(pk1_m.x * pk1_m.x + pk1_m.y * pk1_m.y))
-                {
-                    float2 temp = points[k];
-                    points[k] = points[k + 1];
-                    points[k + 1] = temp;
-                }
+    float2 start_p = points[0];
 
+    for (int i = 0; i < size; i++)
+    {
+        if (points[i].x < start_p.x)
+        {
+            start_p = points[i];
+        }
+        else if (points[i].x == start_p.x)
+        {
+            start_p = float2(points[i].x, min(points[i].y, start_p.y));
+        }
+    }
+    ordered_plgn[0] = start_p;
+    ordered_size += 1;
+    bool leftmost_point = true;
+    int index;
+
+    while (local_size > 1)
+    {
+        index = 0;
+        for (int j = 0; j < local_size; j++)
+        {
+            if (start_p.x == local_plgn[j].x && start_p.y == local_plgn[j].y)
+            {
+                index += 1;
+                continue;
             }
+            float2 ab = local_plgn[j] - start_p;
+            leftmost_point = true;
+            for (int k = 0; k < local_size; k++)
+            {
+                if (local_plgn[k].x == start_p.x && local_plgn[k].y == start_p.y)
+                {
+                    continue;
+                }
+                else if (local_size == 2)
+                {
+                    ordered_plgn[ordered_size] = local_plgn[j];
+                    ordered_size += 1;
+                    //ls.erase(ls.begin() + index);
+                    local_plgn[index] = local_plgn[local_size - 1];
+                    local_size -= 1;
+                    leftmost_point = false;
+                    break;
+                }
+                else if (local_plgn[k].x == local_plgn[j].x && local_plgn[k].y == local_plgn[j].y)
+                {
+                    continue;
+                }
+                else
+                {
+                    if (isLeft(float2(-ab.y, ab.x), start_p, local_plgn[k]))
+                    {
+                        leftmost_point = false;
+                        break;
+                    }
+                }
+            }
+            if (leftmost_point)
+            {
+                ordered_plgn[ordered_size] = local_plgn[j];
+                ordered_size += 1;
+                //ls.erase(ls.begin() + index);
+                local_plgn[index] = local_plgn[local_size - 1];
+                local_size -= 1;
+                break;
+            }
+            index += 1;
         }
     }
     //end of sorting
     
-    
+    r1 = float3(0, 0, 0);
+    r2 = float3(0, 0, 0);
     const float EPS = 1E-5;
-    float m1, t1, m2, t2, m12, m22, t12, t22, c, d, c2, d2, dc, d2c2, d3c3, d4c4, m2m1, t2t1, t22t12, m22m12, m23m13, m2t2m1t1, m22t2m12t1, m2t22m1t12;
-    float2 A = points[0];
-    for (int i = 0; i < size - 2; i++)
+    float2 A = ordered_plgn[0];
+    for (int o = 0; o < ordered_size - 2; o++)
     {
-        float2 C = points[i + 1];
-        float2 B = points[i + 2];
-        
+        //float m1 = 0, t1 = 0, m2 = 0, t2 = 0, m12 = 0, m22 = 0, t12 = 0, t22 = 0, c = 0, d = 0, c2 = 0, d2 = 0, dc = 0, d2c2 = 0, d3c3 = 0, d4c4 = 0, m2m1 = 0, t2t1 = 0, t22t12 = 0, m22m12 = 0, m23m13 = 0, m2t2m1t1 = 0, m22t2m12t1 = 0, m2t22m1t12 = 0;
+        float2 C = ordered_plgn[o + 1];
+        float2 B = ordered_plgn[o + 2];
+
         float2 tri_ac = C - A;
         float2 tri_ab = B - A;
         float2 tri_bc = C - B;
-        
+        if (abs(tri_ac.x) <= 1E-5 && abs(tri_ac.y) <= 1E-5 || abs(tri_ab.x) <= 1E-5 && abs(tri_ab.y) <= 1E-5 || abs(tri_bc.x) <= 1E-5 && abs(tri_bc.y) <= 1E-5)
+            continue;
+        if (abs(tri_ac.x) <= 1E-5 && abs(tri_ab.x) <= 1E-5 || abs(tri_ac.x) <= 1E-5 && abs(tri_bc.x) <= 1E-5 || abs(tri_ab.x) <= 1E-5 && abs(tri_bc.x) <= 1E-5)
+            continue;
         if (abs(tri_ac.x) <= EPS)
         {
-            m1 = tri_bc.y / tri_bc.x;
-            t1 = B.y - m1 * B.x;
-            m2 = tri_ab.y / tri_ab.x;
-            t2 = B.y - m2 * B.x;
+            float m1 = tri_bc.y / tri_bc.x;
+            float t1 = B.y - m1 * B.x;
+            float m2 = tri_ab.y / tri_ab.x;
+            float t2 = B.y - m2 * B.x;
 
-            c = min(A.x, B.x);
-            d = max(A.x, B.x);
+            float c = min(A.x, B.x);
+            float d = max(A.x, B.x);
             
-            c2 = c * c;
-            d2 = d * d;
-            dc = d - c;
-            d2c2 = d2 - c2;
-            d3c3 = d * d2 - c * c2;
-            d4c4 = d2 * d2 - c2 * c2;
-        
-            m12 = m1 * m1;
-            m22 = m2 * m2;
-            t12 = t1 * t1;
-            t22 = t2 * t2;
-        
-            m2m1 = m2 - m1;
-            t2t1 = t2 - t1;
-            m22m12 = m22 - m12;
-            t22t12 = t22 - t12;
-        
-            m23m13 = m2 * m22 - m1 * m12;
-            m2t2m1t1 = m2 * t2 - m1 * t1;
-            m22t2m12t1 = m22 * t2 - m12 * t1;
-            m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-            r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-            r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-            r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-            r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-            r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-            r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+            float d3 = d * d * d;
+            float c3 = c * c * c;
+
+            r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+            r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+            r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+            r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
         }
         else if (abs(tri_bc.x) <= EPS)
         {
-            m1 = tri_ac.y / tri_ac.x;
-            t1 = C.y - m1 * C.x;
-            m2 = tri_ab.y / tri_ab.x;
-            t2 = B.y - m2 * B.x;
+            float m1 = tri_ac.y / tri_ac.x;
+            float t1 = C.y - m1 * C.x;
+            float m2 = tri_ab.y / tri_ab.x;
+            float t2 = B.y - m2 * B.x;
 
-            c = min(A.x, B.x);
-            d = max(A.x, B.x);
+            float c = min(A.x, B.x);
+            float d = max(A.x, B.x);
             
-            c2 = c * c;
-            d2 = d * d;
-            dc = d - c;
-            d2c2 = d2 - c2;
-            d3c3 = d * d2 - c * c2;
-            d4c4 = d2 * d2 - c2 * c2;
+            float d3 = d * d * d;
+            float c3 = c * c * c;
         
-            m12 = m1 * m1;
-            m22 = m2 * m2;
-            t12 = t1 * t1;
-            t22 = t2 * t2;
-        
-            m2m1 = m2 - m1;
-            t2t1 = t2 - t1;
-            m22m12 = m22 - m12;
-            t22t12 = t22 - t12;
-        
-            m23m13 = m2 * m22 - m1 * m12;
-            m2t2m1t1 = m2 * t2 - m1 * t1;
-            m22t2m12t1 = m22 * t2 - m12 * t1;
-            m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-            r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-            r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-            r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-            r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-            r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-            r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+            r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+            r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+            r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+            r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
         }
         else if (abs(tri_ab.x) <= EPS)
         {
-            m1 = tri_ac.y / tri_ac.x;
-            t1 = C.y - m1 * C.x;
-            m2 = tri_bc.y / tri_bc.x;
-            t2 = B.y - m2 * B.x;
+            float m1 = tri_ac.y / tri_ac.x;
+            float t1 = C.y - m1 * C.x;
+            float m2 = tri_bc.y / tri_bc.x;
+            float t2 = B.y - m2 * B.x;
 
-            c = min(A.x, C.x);
-            d = max(A.x, C.x);
+            float c = min(A.x, C.x);
+            float d = max(A.x, C.x);
             
-            c2 = c * c;
-            d2 = d * d;
-            dc = d - c;
-            d2c2 = d2 - c2;
-            d3c3 = d * d2 - c * c2;
-            d4c4 = d2 * d2 - c2 * c2;
+            float d3 = d * d * d;
+            float c3 = c * c * c;
         
-            m12 = m1 * m1;
-            m22 = m2 * m2;
-            t12 = t1 * t1;
-            t22 = t2 * t2;
-        
-            m2m1 = m2 - m1;
-            t2t1 = t2 - t1;
-            m22m12 = m22 - m12;
-            t22t12 = t22 - t12;
-        
-            m23m13 = m2 * m22 - m1 * m12;
-            m2t2m1t1 = m2 * t2 - m1 * t1;
-            m22t2m12t1 = m22 * t2 - m12 * t1;
-            m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-            r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-            r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-            r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-            r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-            r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-            r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+            r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+            r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+            r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+            r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
         }
         else
         {
             if (A.x < C.x && C.x < B.x || B.x < C.x && C.x < A.x)
             {
-                m1 = tri_ac.y / tri_ac.x;
-                t1 = C.y - m1 * C.x;
-                m2 = tri_ab.y / tri_ab.x;
-                t2 = B.y - m2 * B.x;
+                float m1 = tri_ac.y / tri_ac.x;
+                float t1 = C.y - m1 * C.x;
+                float m2 = tri_ab.y / tri_ab.x;
+                float t2 = B.y - m2 * B.x;
 
-                c = min(A.x, C.x);
-                d = max(A.x, C.x);
+                float c = min(A.x, C.x);
+                float d = max(A.x, C.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                float d3 = d * d * d;
+                float c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_bc.y / tri_bc.x;
                 t1 = C.y - m1 * C.x;
                 c = min(B.x, C.x);
                 d = max(B.x, C.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                d3 = d * d * d;
+                c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
             }
             else if (A.x < B.x && B.x < C.x || C.x < B.x && B.x < A.x)
             {
-                m1 = tri_ab.y / tri_ab.x;
-                t1 = B.y - m1 * B.x;
-                m2 = tri_ac.y / tri_ac.x;
-                t2 = C.y - m2 * C.x;
+                float m1 = tri_ab.y / tri_ab.x;
+                float t1 = B.y - m1 * B.x;
+                float m2 = tri_ac.y / tri_ac.x;
+                float t2 = C.y - m2 * C.x;
 				
-                c = min(A.x, B.x);
-                d = max(A.x, B.x);
+                float c = min(A.x, B.x);
+                float d = max(A.x, B.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                float d3 = d * d * d;
+                float c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_bc.y / tri_bc.x;
                 t1 = B.y - m1 * B.x;
                 c = min(C.x, B.x);
                 d = max(C.x, B.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                d3 = d * d * d;
+                c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
             }
-            else
+            else if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
             {
-                m1 = tri_ac.y / tri_ac.x;
-                t1 = C.y - m1 * C.x;
-                m2 = tri_bc.y / tri_bc.x;
-                t2 = B.y - m2 * B.x;
+                float m1 = tri_ac.y / tri_ac.x;
+                float t1 = C.y - m1 * C.x;
+                float m2 = tri_bc.y / tri_bc.x;
+                float t2 = B.y - m2 * B.x;
 
-                c = min(A.x, C.x);
-                d = max(A.x, C.x);
+                float c = min(A.x, C.x);
+                float d = max(A.x, C.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                float d3 = d * d * d;
+                float c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_ab.y / tri_ab.x;
                 t1 = C.y - m1 * C.x;
                 c = min(A.x, B.x);
                 d = max(A.x, B.x);
                 
-                c2 = c * c;
-                d2 = d * d;
-                dc = d - c;
-                d2c2 = d2 - c2;
-                d3c3 = d * d2 - c * c2;
-                d4c4 = d2 * d2 - c2 * c2;
+                d3 = d * d * d;
+                c3 = c * c * c;
         
-                m12 = m1 * m1;
-                m22 = m2 * m2;
-                t12 = t1 * t1;
-                t22 = t2 * t2;
-        
-                m2m1 = m2 - m1;
-                t2t1 = t2 - t1;
-                m22m12 = m22 - m12;
-                t22t12 = t22 - t12;
-        
-                m23m13 = m2 * m22 - m1 * m12;
-                m2t2m1t1 = m2 * t2 - m1 * t1;
-                m22t2m12t1 = m22 * t2 - m12 * t1;
-                m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-                r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-                r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-                r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-                r2.x += abs(0.5f * (1.0f / 3.0f * m22m12 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-                r2.y += abs(0.5f * (0.25f * m22m12 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-                r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);
+                r1.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
+                r1.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
+                r1.z += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+                r2.x += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
+                r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+                r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
             }
         }
-        /*c2 = c * c;
-        d2 = d * d;
-        dc = d - c;
-        d2c2 = d2 - c2;
-        d3c3 = d * d2 - c * c2;
-        d4c4 = d2 * d2 - c2 * c2;
-        
-        m12 = m1 * m1;
-        m22 = m2 * m2;
-        t12 = t1 * t1;
-        t22 = t2 * t2;
-        
-        m2m1 = m2 - m1;
-        t2t1 = t2 - t1;
-        m22m12 = m22 - m12;
-        t22t12 = t22 - t12;
-        
-        m23m13 = m2 * m22 - m1 * m12;
-        m2t2m1t1 = m2 * t2 - m1 * t1;
-        m22t2m12t1 = m22 * t2 - m12 * t1;
-        m2t22m1t12 = m2 * t22 - m1 * t12;
-        
-        r1.x += abs(0.25 * m2m1 * d4c4 + 1.0f / 3.0f * t2t1 * d3c3);
-        r1.y += abs(1.0f / 3.0f * (0.25f * m23m13 * d4c4 + m22t2m12t1 * d3c3 + 1.5f * m2t22m1t12 * d2c2 + (t2 * t2 * t2 - t1 * t1 * t1) * dc));
-        r1.z += abs(1.0f / 3.0f * m2m1 * d3c3 + 0.5f * t2t1 * d2c2);
-        r2.x += abs(0.5f * (1.0f / 3.0f * m22t2m12t1 * d3c3 + m2t2m1t1 * d2c2 + t22t12 * dc));
-        r2.y += abs(0.5f * (0.25f * m22t2m12t1 * d4c4 + 2.0f / 3.0f * m2t2m1t1 * d3c3 + 0.5f * t22t12 * d2c2));
-        r2.z += abs(0.5f * m2m1 * d2c2 + t2t1 * dc);*/
-
     }
 }
 
@@ -580,10 +464,30 @@ float3 cholesky_solve(float3x3 mL, float3 b)
     return x;
 }
 
-[numthreads(256, 1, 1)]
+bool intersect_segment_segment(float2 _a, float2 _b, float2 _c, float2 _d, inout float2 _t)
+{
+    float2 ba = _b - _a, dc = _d - _c;
+    float disc = _a.x * (_d.y - _c.y) + _b.x * (_c.y - _d.y) + (_b.y - _a.y) * _d.x + (_a.y - _b.y) * _c.x;
+    if (abs(disc) < 1E-10)
+        return false;
+    
+    _t.x = (_a.x * (_d.y - _c.y) + _c.x * (_a.y - _d.y) + (_c.y - _a.y) * _d.x) / (disc != 0 ? disc : 1);
+    if (_t.x < 0 || 1 < _t.x)
+        return false;
+    
+    _t.y = -(_a.x * (_c.y - _b.y) + _b.x * (_a.y - _c.y) + (_b.y - _a.y) * _c.x) / (disc != 0 ? disc : 1);
+    if (_t.y < 0 || 1 < _t.y)
+        return false;
+    
+    _t = _a + _t.x * ba;
+    return true;
+}
+
+[numthreads(128, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
-    
+    if (DTid > 647)
+        return;
     //float2 A = float2(0.0f, 0.0f), B = float2(0.0f, 0.0f), C = float2(0.0f, 0.0f);
     uint ind_A = indices.Load(DTid * 12);
     uint ind_B = indices.Load(DTid * 12 + 4);
@@ -595,7 +499,7 @@ void main(uint DTid : SV_DispatchThreadID)
 
     float2 ab = B - A;
     float2 ac = C - A;
-    float2 bc = B - C;
+    float2 bc = C - B;
     
     float tri_area = triangle_area(A, B, C);
     
@@ -610,14 +514,14 @@ void main(uint DTid : SV_DispatchThreadID)
     int pixel_left_x = ceil(max_x);
     int pixel_top_y = ceil(max_y);
     
-    float3 color = float3(0.f, 0.0f, 0.0f);
+    float3 color = float3(0, 0, 0);
     
-    float x2 = 0.0f, y2 = 0.0f, x = 0.0f, y = 0.0f, xy = 0.0f, n = 0.0f;
-    float3 xI = float3(0.0f, 0.0f, 0.0f);
-    float3 yI = float3(0.0f, 0.0f, 0.0f);
-    float3 I = float3(0.0f, 0.0f, 0.0f);
+    float x2 = 0.0, y2 = 0.0, x = 0.0, y = 0.0, xy = 0.0, n = 0.0;
+    float3 xI = float3(0.0, 0.0, 0.0);
+    float3 yI = float3(0.0, 0.0, 0.0);
+    float3 I = float3(0.0, 0.0, 0.0);
     
-    float3 r123, r456;
+    float3 r123 = float3(0, 0, 0), r456 = float3(0, 0, 0);
     
     for (int i = pixel_right_x; i < pixel_left_x; i++)
     {
@@ -625,7 +529,7 @@ void main(uint DTid : SV_DispatchThreadID)
         {
             float3 pixel_color = image.Load(int3(i, j, 0));
             //{float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f)}
-            size = 0;
+            int size = 0;
             
             float area = 0;
             bool whole_pixel = true;
@@ -637,43 +541,43 @@ void main(uint DTid : SV_DispatchThreadID)
 
             if (point_inside_triangle(x1y1, A, B, C))
             {
-                if (!point_in_polygon(x1y1))
-                    append(x1y1); //polygon.push_back
+                if (!point_in_polygon(x1y1, size))
+                    append(x1y1, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x2y1, A, B, C))
             {
-                if (!point_in_polygon(x2y1))
-                    append(x2y1); //polygon.push_back
+                if (!point_in_polygon(x2y1, size))
+                    append(x2y1, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x1y2, A, B, C))
             {
-                if (!point_in_polygon(x1y2))
-                    append(x1y2); //polygon.push_back
+                if (!point_in_polygon(x1y2, size))
+                    append(x1y2, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x2y2, A, B, C))
             {
-                if (!point_in_polygon(x2y2))
-                    append(x2y2); //polygon.push_back
+                if (!point_in_polygon(x2y2, size))
+                    append(x2y2, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             
             if (whole_pixel)
             {
-                x2 += 1.0f / 3.0f * abs(pow(i + 1, 3) - pow(i, 3));
-                y2 += 1.0f / 3.0f * abs(pow(j + 1, 3) - pow(j, 3));
-                float x_pl = 0.5f * abs(pow(i + 1, 2) - pow(i, 2));
-                float y_pl = 0.5f * abs(pow(j + 1, 2) - pow(j, 2));
+                x2 += (1.0 / 3.0) * abs(pow(i + 1, 3) - pow(i, 3));
+                y2 += (1.0 / 3.0) * abs(pow(j + 1, 3) - pow(j, 3));
+                float x_pl = 0.5 * abs(pow(i + 1, 2) - pow(i, 2));
+                float y_pl = 0.5 * abs(pow(j + 1, 2) - pow(j, 2));
                 x += x_pl;
                 y += y_pl;
                 xy += x_pl * y_pl; //1.0f / 4.0f * abs(pow(i + 1, 2) - pow(i, 2)) * (pow(j + 1, 2) - pow(j, 2));
-                n += 1.0f;
+                n += 1.0;
                 
                 xI += x_pl * pixel_color;
                 yI += y_pl * pixel_color;
@@ -683,203 +587,203 @@ void main(uint DTid : SV_DispatchThreadID)
             {
                 if (A.x >= i && A.x <= i + 1 && A.y >= j && A.y <= j + 1)
                 {
-                    if (!point_in_polygon(A))
-                        append(A);
+                    if (!point_in_polygon(A, size))
+                        append(A, size);
                 }
                 if (B.x >= i && B.x <= i + 1 && B.y >= j && B.y <= j + 1)
                 {
-                    if (!point_in_polygon(B))
-                        append(B);
+                    if (!point_in_polygon(B, size))
+                        append(B, size);
                 }
                 if (C.x >= i && C.x <= i + 1 && C.y >= j && C.y <= j + 1)
                 {
-                    if (!point_in_polygon(C))
-                        append(C);
+                    if (!point_in_polygon(C, size))
+                        append(C, size);
                 }
                 
                 float2 i0;
                 float2 i1;
                 int intrsct;
                 //AB
+                
+                intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ab, i0, i1);
+                if (intrsct == 2)
                 {
-                    intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ab, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-
-                    intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ab, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ab, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ab, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
                 }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+
+                intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ab, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ab, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ab, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
                 //AC
+                
+                intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ac, i0, i1);
+                if (intrsct == 2)
                 {
-                    intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ac, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-
-                    intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ac, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ac, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ac, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
                 }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+
+                intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ac, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ac, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ac, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
                 //BC
+                
+                intrsct = intersect_segments(float2(i, j), float2(1, 0), B, bc, i0, i1);
+                if (intrsct == 2)
                 {
-                    intrsct = intersect_segments(float2(i, j), float2(1, 0), B, bc, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-
-                    intrsct = intersect_segments(float2(i, j), float2(0, 1), B, bc, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), B, bc, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
-                
-                    intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), B, bc, i0, i1);
-                    if (intrsct == 2)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                        if (!point_in_polygon(i1))
-                            append(i1);
-                    }
-                    else if (intrsct == 1)
-                    {
-                        if (!point_in_polygon(i0))
-                            append(i0);
-                    }
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
                 }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+
+                intrsct = intersect_segments(float2(i, j), float2(0, 1), B, bc, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), B, bc, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
+                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), B, bc, i0, i1);
+                if (intrsct == 2)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                    if (!point_in_polygon(i1, size))
+                        append(i1, size);
+                }
+                else if (intrsct == 1)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
+                
                 
                 if (size >= 3)
                 {
-                    r123 = float3(0.0f, 0.0f, 0.0f);
-                    r456 = float3(0.0f, 0.0f, 0.0f);
-                    integrate_over_polygon(r123, r456);
+                    r123 = float3(0.0, 0.0, 0.0);
+                    r456 = float3(0.0, 0.0, 0.0);
+                    integrate_over_polygon(r123, r456, size);
                     
                     x2 += r123.x;
                     y2 += r123.y;
@@ -895,7 +799,13 @@ void main(uint DTid : SV_DispatchThreadID)
             }
         }
     }
-    
+    /*if (1 || x2 != x2 || y2 != y2 || x != x || y != y || xy != xy || n != n)
+    {
+        coefficients.Store3(DTid * 36, asuint(float3(0, 0, x2)));
+        coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, x2)));
+        coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, x2)));
+        return;
+    }*/
     float3x3 M = { x2, xy, x, xy, y2, y, x, y, n };
     float3x3 L = cholesky(M);
     
@@ -918,6 +828,17 @@ void main(uint DTid : SV_DispatchThreadID)
         abcB = float3(0, 0, I.z / (float) n);
     }
     
+    /*abcR = DTid == 51 ? float3(0, 0, x2) : abcR;
+    abcG = DTid == 51 ? float3(0, 0, 1) : abcG;
+    abcB = DTid == 51 ? float3(0, 0, 1) : abcB;*/
+    
+    /*if (1 && DTid == 51)
+    {
+        coefficients.Store3(DTid * 36, asuint(float3(0, 0, x2)));
+        coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, 1)));
+        coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, 1)));
+        return;
+    }*/
     coefficients.Store3(DTid * 36, asuint(abcR));
     coefficients.Store3(DTid * 36 + 12, asuint(abcG));
     coefficients.Store3(DTid * 36 + 24, asuint(abcB));

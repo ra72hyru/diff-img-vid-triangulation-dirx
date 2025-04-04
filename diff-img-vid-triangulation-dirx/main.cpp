@@ -78,7 +78,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	d3d = new D3D(hWnd);
 	if (!d3d->initialize()) return -1;
 
-	triangulator = new Triangulator(imageView, d3d, 648);
+	triangulator = new Triangulator(imageView, d3d, 650);
 	if (!triangulator->create(d3d->getDevice())) return -1;
 	imageView->create(d3d->getDevice());
 
