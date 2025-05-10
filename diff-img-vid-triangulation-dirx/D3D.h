@@ -2,7 +2,10 @@
 
 #include <D3D11.h>
 #include <DXGI.h>
+//#include <D3DX11tex.h>
 #include <d3dcompiler.h>
+#include <wincodec.h>
+#include <ScreenGrab.h>
 #include "common.h"
 
 class D3D 
@@ -19,6 +22,8 @@ class D3D
 		void releaseDevice();
 		void releaseSwapChain();
 
+		void saveImageFromBackBuffer();
+
 		ID3D11Device* getDevice() { return pDevice; };
 		ID3D11DeviceContext* getImmediateContext() { return pImmediateContext; };
 		IDXGISwapChain* getSwapChain() { return pSwapChain; };
@@ -26,6 +31,7 @@ class D3D
 		ID3D11RenderTargetView* getRenderTargetView_Backbuffer() { return pRenderTargetView_Backbuffer; };
 		ID3D11DepthStencilView* getDepthStencilView_Backbuffer() { return pDepthStencilView_Backbuffer; };
 		ID3D11ShaderResourceView* getShaderResourceView_Backbuffer() { return pShaderResourceView_Backbuffer; };
+		ID3D11ShaderResourceView* getShaderResourceView_RT() { return pSRV_RenderTargetView; };
 
 		void EndFrame();
 		void ClearBuffer(float r, float g, float b) 
@@ -47,6 +53,7 @@ class D3D
 		ID3D11Texture2D* pDepthStencilView_Texture;
 		ID3D11DepthStencilView* pDepthStencilView_Backbuffer;
 		ID3D11ShaderResourceView* pShaderResourceView_Backbuffer;
+		ID3D11ShaderResourceView* pSRV_RenderTargetView;
 
 		D3D11_VIEWPORT mViewport;
 };
@@ -78,7 +85,8 @@ class SharedByteAddressBuffer
 			ZeroMemory(&initData, sizeof(D3D11_SUBRESOURCE_DATA));
 
 			std::vector<char> data(byte_width);
-			memcpy_s(data.data(), byte_width, buffer_content.data(), byte_width);
+			//memcpy_s(data.data(), byte_width, buffer_content.data(), byte_width);
+			memcpy_s(data.data(), buffer_content.size() * sizeof(T), buffer_content.data(), buffer_content.size() * sizeof(T));
 			initData.pSysMem = data.data();
 
 			HRESULT hr;
@@ -187,6 +195,14 @@ class SharedByteAddressBuffer
 				releaseBuffer();
 				createBuffer(device, bind_flags, CPUaccess_flags);
 			}
+		};
+
+		void clearUAV(ID3D11DeviceContext* immediateContext, const Vec4u& val)
+		{
+			if (!pUnorderedAccessView)
+				return;
+			unsigned int values[4] = { val.r, val.g, val.b, val.a };
+			immediateContext->ClearUnorderedAccessViewUint(pUnorderedAccessView, values);
 		};
 
 		ID3D11Buffer* getBuffer() { return pBuffer; };

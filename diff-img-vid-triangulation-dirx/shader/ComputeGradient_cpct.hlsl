@@ -119,11 +119,12 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     gradACB = 0.0f;                                                             //TODO: zweite Schleife ergänzen, dritte Schleife, UpdatePositionsRTT.hlsl
     gradBCA = 0.0f;
 
+    float3 dims;
+    image.GetDimensions(0, dims.x, dims.y, dims.z);
     int curX = floor(B.x);
     int curY = floor(B.y);
     int endX = floor(C.x);
     int endY = floor(C.y);
-    
     float2 p = B;
     float2 q;
     
@@ -162,7 +163,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     int test = 0;
     while (/*test < 5 &&*/ (curX != endX || curY != endY))
     {
-        img_col = image.Load(int3(curX, curY, 0)).rgb;
+        img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
         err3 = pow(abs((img_col - tri_color)), 2);
         err = err3.x + err3.y + err3.z;
         test++;
@@ -353,7 +354,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     //if (curX < 0 || curY < 0)
       //  gradABC = 19283746;
     //TODO: p - C nach den Schleifen
-    img_col = image.Load(int3(curX, curY, 0)).rgb;
+    img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
     err3 = pow(abs((img_col - tri_color)), 2);
     err = err3.x + err3.y + err3.z;
     
@@ -401,7 +402,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     
     while (/*test < 50 && */(curX != endX || curY != endY))
     {
-        img_col = image.Load(int3(curX, curY, 0)).rgb;
+        img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
         err3 = pow(abs((img_col - tri_color)), 2);
         err = err3.x + err3.y + err3.z;
         test++;
@@ -558,7 +559,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     }
     //if (curX < 0 || curY < 0)
       //  gradABC = 19283746;
-    img_col = image.Load(int3(curX, curY, 0)).rgb;
+    img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
     err3 = pow(abs((img_col - tri_color)), 2);
     err = err3.x + err3.y + err3.z;
     a = max(a, b);
@@ -605,7 +606,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     
     while (/*test < 50 &&*/ (curX != endX || curY != endY))
     {
-        img_col = image.Load(int3(curX, curY, 0)).rgb;
+        img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
         err3 = pow(abs((img_col - tri_color)), 2);
         err = err3.x + err3.y + err3.z;
         test++;
@@ -762,7 +763,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     }
     //if (curX < 0 || curY < 0)
       //  gradABC = 19283746;
-    img_col = image.Load(int3(curX, curY, 0)).rgb;
+    img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
     err3 = pow(abs((img_col - tri_color)), 2);
     err = err3.x + err3.y + err3.z;
     a = max(a, b);
@@ -780,9 +781,9 @@ float test()
     float2 B = float2(3.0f, 3.0f);
     loat2 C = float2(0.0f, 3.0f);*/
     float3 tri_col = float3(254.0f / 255.0f, 0, 0);
-    float2 A = float2(700.0f, 500.0f);
-    float2 B = float2(730.0f, 500.0f);
-    float2 C = float2(730.0f, 530.0f);
+    float2 A = float2(797.0f, 500.0f);
+    float2 B = float2(800.0f, 500.0f);
+    float2 C = float2(800.0f, 503.0f);
     
     float2 grABC = float2(0.0f, 0.0f);
     float2 grACB = float2(0.0f, 0.0f);

@@ -85,6 +85,22 @@ float2 normal_out(float2 v, float2 w)
     return n;
 }
 
+float integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, float c, float d, float2 B, float2 bc, float3 tri_color, float f)
+{
+    float3 K2 = pow(K, 2);
+    float3 Kx2 = pow(Kx, 2);
+    float3 Ky2 = pow(Ky, 2);
+    float3 Kxy2 = pow(Kxy, 2);
+    
+    float3 t2 = 0.5 * (d * d - c * c) * (K2 + Kx2 * B.x * B.x + Ky2 * B.y * B.y + Kxy2 * B.x * B.x * B.y * B.y - 2 * K * tri_color - 2 * Kx * B.x * tri_color - 2 * Ky * B.y * tri_color - 2 * Kxy * B.x * B.y * tri_color + pow(tri_color, 2));
+    float3 t3 = 1.0 / 3.0 * (d * d * d - c * c * c) * (Kx2 * 2 * B.x * bc.x + Ky2 * 2 * B.y * bc.y + Kxy2 * 2 * B.x * B.x * B.y * bc.y + Kxy2 * 2 * B.x * B.y * B.y * bc.x - 2 * Kx * bc.x * tri_color - 2 * Ky * bc.y * tri_color - 2 * Kxy * B.x * bc.y * tri_color - 2 * Kxy * B.y * bc.x * tri_color);
+    float3 t4 = 0.25 * (d * d * d * d - c * c * c * c) * (Kx2 * bc.x * bc.x + Ky2 * bc.y * bc.y + Kxy2 * B.x * B.x * bc.y * bc.y * Kxy2 * 4 * B.x * B.y * bc.x * bc.y + Kxy2 * B.y * B.y * bc.x * bc.x - 2 * Kxy * bc.x * bc.y * tri_color);
+    float3 t5 = 0.2 * (d * d * d * d * d - c * c * c * c * c) * (Kxy2 * 2 * B.x * bc.x * bc.y * bc.y + Kxy2 * 2 * B.y * bc.x * bc.x);
+    float3 t6 = 1.0 / 6.0 * (d * d * d * d * d * d - c * c * c * c * c * c) * (Kxy2 * bc.x * bc.x * bc.y * bc.y);
+    //TODO: (a+b+c+d)^2
+    return t2 + t3 + t4 + t5 + t6;
+}
+
 void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, float dy, inout float gradABC, inout float gradACB, inout float gradBCA)
 {
     float2 ba = A - B;

@@ -3,6 +3,7 @@
 #include "D3D.h"
 #include "Triangulator.h"
 #include <Windows.h>
+#include <roapi.h>
 #include <Eigen/Dense>
 
 
@@ -58,6 +59,16 @@ HRESULT initializeWindow(HINSTANCE hInstance, HWND& hWnd, int nCmdShow, int widt
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
+#if (_WIN32_WINNT >= 0x0A00 /*_WIN32_WINNT_WIN10*/)
+	HRESULT hr = RoInitialize(RO_INIT_MULTITHREADED);
+	if (FAILED(hr))
+		return -1;
+#else
+	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr))
+		// error
+#endif
+
 	//cv::Mat img = cv::imread(__argv[1], cv::IMREAD_COLOR);
 	AllocConsole();
 	FILE* pCout;
@@ -78,7 +89,11 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	d3d = new D3D(hWnd);
 	if (!d3d->initialize()) return -1;
 
-	triangulator = new Triangulator(imageView, d3d, 650);
+	std::string path = __argv[1];
+	std::string file = path.substr(path.find_last_of("/\\") + 1);
+	std::string filename = file.substr(0, file.find_last_of('.'));
+
+	triangulator = new Triangulator(imageView, d3d, 1000, filename);
 	if (!triangulator->create(d3d->getDevice())) return -1;
 	imageView->create(d3d->getDevice());
 
@@ -99,7 +114,9 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		immediateContext->ClearRenderTargetView(renderTargetView, clear_color);
 		immediateContext->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH, 1, 0);
 		
-		triangulator->draw(immediateContext, en_constant);
+		//triangulator->draw(immediateContext, en_linear);
+		//triangulator->draw_fin_diff(immediateContext, en_constant);
+		triangulator->drawV2(immediateContext, en_constant);
 		d3d->EndFrame();
 		double a = 10;
 	}

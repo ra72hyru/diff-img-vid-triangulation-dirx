@@ -41,6 +41,8 @@ class ImageView
 		int getHeight() { return height; };
 		Mat4x4f getProjectionMatrix() { return projMatrix; };
 
+		Vec3f at(int x, int y) { return { imageData[y * width + x].r, imageData[y * width + x].g, imageData[y * width + x].b }; };
+
 		bool create(ID3D11Device* device);
 		void release();
 	private:

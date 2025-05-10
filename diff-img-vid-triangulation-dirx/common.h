@@ -27,6 +27,14 @@ struct Vec4f
 	float a;
 };
 
+struct Vec4u
+{
+	unsigned int r;
+	unsigned int g;
+	unsigned int b;
+	unsigned int a;
+};
+
 struct Vec6f 
 {
 	float grABCx;
@@ -50,9 +58,9 @@ struct Vec9f
 	float b_c;
 };
 
-struct Vec144f 
+struct Vec36f 
 {
-	float colors[144];
+	float colors[36];
 };
 
 struct Mat4x4f 

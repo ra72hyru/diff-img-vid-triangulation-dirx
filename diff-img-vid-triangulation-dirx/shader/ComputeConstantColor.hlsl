@@ -3,6 +3,11 @@ ByteAddressBuffer indices : register(t1);
 Texture2D image : register(t2);
 RWByteAddressBuffer colors : register(u0);
 
+cbuffer params : register(b0)
+{
+    int num;
+}
+
 static float2 points[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
 //static uint size;
 
@@ -118,13 +123,6 @@ bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
     if (dot(normal_in(ab, ac), p - A) <= 0 || dot(normal_in(ac, ab), p - A) <= 0 || dot(normal_in(bc, -ab), p - B) <= 0)
         return false;
     return true;
-    
-    float s = 1 / (2 * signed_triangle_area(A, B, C)) * (A.y * C.x - A.x * C.y + p.x * (C.y - A.y) + p.y * (A.x - C.x));
-    float t = 1 / (2 * signed_triangle_area(A, B, C)) * (A.x * B.y - A.y * B.x + p.x * (A.y - B.y) + p.y * (B.x - A.x));
-
-    if (s >= 0 && t >= 0 && 1 - s - t >= 0)
-        return true;
-    return false;
 }
 
 void append(float2 p, inout int size)
@@ -261,56 +259,14 @@ float polygon_area(in int size)
     }
     
     return area;
-    ///////////////////////////////////////////////////////////////////////////////
-    /*float2 mean = float2(0.0f, 0.0f);
-    
-    for (int i = 0; i < size; i++)
-    {
-        mean += points[i];
-    }
-    mean /= size;
-    
-    for (int j = 0; j < size; j++)
-    {
-        for (int k = 0; k < size - j; k++)
-        {
-            float2 pk_m = points[k] - mean;
-            float2 pk1_m = points[k + 1] - mean;
-            if (pk_m.x < pk1_m.x)
-            {
-                float2 temp = points[k];
-                points[k] = points[k + 1];
-                points[k + 1] = temp;
-            }
-            else if (abs(pk_m.x - pk1_m.x) < 1E-5)
-            {
-                if (sqrt(pk_m.x * pk_m.x + pk_m.y * pk_m.y) < sqrt(pk1_m.x * pk1_m.x + pk1_m.y * pk1_m.y))
-                {
-                    float2 temp = points[k];
-                    points[k] = points[k + 1];
-                    points[k + 1] = temp;
-                }
-
-            }
-        }
-    }
-    //local size, gelöschtes element mit letztem überschreiben, local size - 1
-    float area = 0.0f;
-    for (int l = 0; l < size - 2; l++)
-    {
-        area += triangle_area(points[0], points[l + 1], points[l + 2]);
-    }
-    
-    return area;*/
 }
 
-[numthreads(256, 1, 1)]
+[numthreads(64, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
-    //if (DTid > 650)
-      //  return;
-    //float2 abc[7];//hier testen
-    //float2 A = float2(0.0f, 0.0f), B = float2(0.0f, 0.0f), C = float2(0.0f, 0.0f);
+    if (DTid >= num)
+      return;
+
     uint ind_A = indices.Load(DTid * 12);
     uint ind_B = indices.Load(DTid * 12 + 4);
     uint ind_C = indices.Load(DTid * 12 + 8);
@@ -342,7 +298,6 @@ void main(uint DTid : SV_DispatchThreadID)
     {
         for (int j = pixel_bottom_y; j < pixel_top_y; j++)
         {
-            //{float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f)}
             int size = 0;
             
             float area = 0.0f;
@@ -673,8 +628,6 @@ void main(uint DTid : SV_DispatchThreadID)
                 {
                     area = polygon_area(size);
                 }
-                //else if (size == 0)
-                  //  area = 1.0f;
                 total_area += area;
             }
             

@@ -91,7 +91,7 @@ float signed_triangle_area(float2 A, float2 B, float2 C)
     return 0.5 * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y));
 }
 
-bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
+bool point_inside_triangle_(float2 p, float2 A, float2 B, float2 C)
 {
     float s = 1 / (2 * signed_triangle_area(A, B, C)) * (A.y * C.x - A.x * C.y + p.x * (C.y - A.y) + p.y * (A.x - C.x));
     float t = 1 / (2 * signed_triangle_area(A, B, C)) * (A.x * B.y - A.y * B.x + p.x * (A.y - B.y) + p.y * (B.x - A.x));
@@ -99,6 +99,24 @@ bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
     if (s >= -1E-5 && t >= -1E-5 && 1 - s - t >= -1E-5)
         return true;
     return false;
+}
+
+float2 normal_in(float2 v, float2 w)
+{
+    float2 n = float2(v.y, -v.x);
+    n = dot(n, w) <= 0 ? -n : n;
+    return n;
+}
+
+bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
+{
+    float2 ab = B - A;
+    float2 ac = C - A;
+    float2 bc = C - B;
+    
+    if (dot(normal_in(ab, ac), p - A) <= 0 || dot(normal_in(ac, ab), p - A) <= 0 || dot(normal_in(bc, -ab), p - B) <= 0)
+        return false;
+    return true;
 }
 
 void append(float2 p, inout int size)
@@ -227,6 +245,9 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size)
     float2 A = ordered_plgn[0];
     for (int o = 0; o < ordered_size - 2; o++)
     {
+        if (triangle_area(ordered_plgn[0], ordered_plgn[o + 1], ordered_plgn[o + 2]) < 0.2)
+            continue;
+        
         float2 C = ordered_plgn[o + 1];
         float2 B = ordered_plgn[o + 2];
         

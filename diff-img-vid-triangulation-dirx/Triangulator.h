@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fstream>
 #include "common.h"
 #include "D3D.h"
 #include "Image.h"
@@ -22,6 +23,8 @@ struct CB_UpdatePosInput
 	float stepSize;
 	int width;
 	int height;
+	float trustRegion;
+	float damping;
 };
 
 struct CB_FiniteDiffInput 
@@ -35,16 +38,31 @@ struct CB_FiniteDiffInput
 	float dyC;
 };
 
+struct CB_Num
+{
+	int num;
+};
+
+struct sort_pred 
+{
+	bool operator()(const std::pair<int, float>& left, const std::pair<int, float>& right) 
+	{
+		return right.second < left.second;
+	}
+};
+
 class Triangulator 
 {
 	public:
-		Triangulator(ImageView* image, D3D* pD3D, int numTriangles);
+		Triangulator(ImageView* image, D3D* pD3D, int numTriangles, std::string file);
 		~Triangulator();
 
 		bool create(ID3D11Device* device);
 		void release();
 
-		void draw(ID3D11DeviceContext* immediatContext, RenderMode mode);
+		void draw(ID3D11DeviceContext* immediateContext, RenderMode mode);
+		void draw_fin_diff(ID3D11DeviceContext* immediateContext, RenderMode mode);
+		void drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode);
 	private:
 		void render(ID3D11DeviceContext* immediateContext, RenderMode mode);
 		void computeConstantColors(ID3D11DeviceContext* immediateContext);
@@ -53,14 +71,31 @@ class Triangulator
 		void clg_bi_interp(ID3D11DeviceContext* immediateContext);
 		void computeGradients_rtt(ID3D11DeviceContext* immediateContext);
 		void computeGradients_cplg(ID3D11DeviceContext* immediateContext);
-		void finite_differences(ID3D11DeviceContext* immediateContext);
+		void finite_differences(float plmi, ID3D11DeviceContext* immediateContext);
+		void computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immediateContext);
 		void updatePositions(ID3D11DeviceContext* immediateContext);
 		void updatePositions_fin_diff(ID3D11DeviceContext* immediateContext);
+		void computeErrors(ID3D11DeviceContext* immediateContext);
+		void computePixelVariance(ID3D11DeviceContext* immediateContext);
+		void computeImageErrorCS(ID3D11DeviceContext* immediateContext);
 
 		void delaunay(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		void delaunay_error_conscious(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		bool eliminate_degenerate_triangles(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
-		void print_areas(ID3D11DeviceContext* immediateContext);
+		int insertion(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		int insertion2(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		int insertionV3(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		float computeImageErrorPS(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		float getTotalError(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 
+		void print_areas(ID3D11DeviceContext* immediateContext);
+		float compute_standard_deviation(ID3D11DeviceContext* immediateContext);
+		float compute_standard_deviation2(ID3D11DeviceContext* immediateContext);
+
+		void insert_vertex_center(unsigned int tri_index, ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		void insert_triangle_into_triangle(unsigned int tri_index, std::vector<bool>& marked, ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+
+		void updateDataOnGPU(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		void createRegularGrid();
 		void buildNeighbors(bool buildBuffers);
 		void buildNeighborBuffers();
@@ -72,12 +107,25 @@ class Triangulator
 		std::vector<int> get_edges_with_triangle(unsigned int t);
 		std::vector<int> get_edges_with_vertex(unsigned int v);
 
+		void writeErrorToFile(std::string file, int iteration, float error);
+
+		float dot(const Vec2f& v, const Vec2f& w);
+		Vec2f normal_in(const Vec2f& v, const Vec2f& w);
+		bool point_inside_triangle(const Vec2f& p, const Vec2f& A, const Vec2f& B, const Vec2f& C);
+		Vec3f tri_overlap_color(const Vec2f& A, const Vec2f& B, const Vec2f& C);
+		float computeErrorCPU(const Vec2f& A, const Vec2f& B, const Vec2f& C, const Vec3f& color);
+
 		ImageView* image;
 
+		std::string filename;
+
 		int nTriangles;
+		int triangleGoal;
 
 		int delaunayEveryNthIteration;
 		int delaunayUntilNthIteration;
+
+		bool computeErrorInPS;
 
 		D3D* d3d;
 
@@ -90,7 +138,13 @@ class Triangulator
 		SharedByteAddressBuffer<unsigned int> indices_in_neighbor_list;		//index for each vertex, where in the list its neighbors start
 		SharedByteAddressBuffer<unsigned int> neighbor_count;				//count of neighboring triangles for each vertex
 		SharedByteAddressBuffer<Vec6f> gradients_rtt;						//gradients for each triangle, computed using Reynolds transport theorem
-		SharedByteAddressBuffer<Vec144f> gradients_fin_diff;
+		SharedByteAddressBuffer<Vec36f> colors_fin_diff;
+		SharedByteAddressBuffer<Vec36f> errors_fin_diff;
+		SharedByteAddressBuffer<float> errors;								//error between image and triangle for each triangle 
+		SharedByteAddressBuffer<Vec4u> errorsPS;								//error between image and triangle for each triangle, computed pixel-wise in the pixelshader
+		SharedByteAddressBuffer<Vec4u> errorCS;								//error between original image and triangulated image
+		
+		SharedByteAddressBuffer<Vec3f> pixel_variance;						//pixel variance of pixels in a triangle 
 
 		std::vector<std::list<unsigned int> > neighbors;														//neighbors on CPU-side for (hopefully) faster delaunay
 		std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int> > edges;					//edges that have two adjacent triangles
@@ -101,7 +155,9 @@ class Triangulator
 
 		ID3D11VertexShader* pVertexShader;
 		ID3D11PixelShader* pPixelShader;
+		ID3D11PixelShader* pPSWithError;
 		ID3D11PixelShader* pPSLinearGradients;
+		ID3D11PixelShader* pPSLinGradWithError;
 
 		ID3D11ComputeShader* pComputeConstantColor;
 		ID3D11ComputeShader* pComputeLinearGradients;
@@ -110,12 +166,17 @@ class Triangulator
 		ID3D11ComputeShader* pComputeGradients_rtt;
 		ID3D11ComputeShader* pComputeGradients_cplg;
 		ID3D11ComputeShader* pFiniteDifferences;
+		ID3D11ComputeShader* pComputeErrors_fin_diff;
 		ID3D11ComputeShader* pUpdatePositions_cc;
 		ID3D11ComputeShader* pUpdatePositions_fin_diff;
+		ID3D11ComputeShader* pComputeErrors;
+		ID3D11ComputeShader* pComputePixelVariance;
+		ID3D11ComputeShader* pComputeImageError;
 
 		ConstantBuffer<CB_VSInput> VSInput;
 		ConstantBuffer<CB_UpdatePosInput> CSInput;
 		ConstantBuffer<CB_FiniteDiffInput> CSfin_diff_Input;
+		ConstantBuffer<CB_Num> CSNum;
 
 		//debug and testing
 		void createTestVertices();

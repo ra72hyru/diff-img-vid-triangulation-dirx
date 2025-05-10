@@ -1,6 +1,6 @@
 #include "Triangulator.h"
 
-Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles) : image(image), d3d(pD3D),
+Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles, std::string file) : image(image), d3d(pD3D),
 								positions(),
 								indices(),
 								is_on_border(), 
@@ -10,11 +10,18 @@ Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles) : imag
 								indices_in_neighbor_list(),
 								neighbor_count(),
 								gradients_rtt(),
-								gradients_fin_diff(),
+								colors_fin_diff(),
+								errors_fin_diff(),
+								errors(),
+								errorsPS(),
+								errorCS(),
+								pixel_variance(),
 								pInputLayout(NULL),
 								pVertexShader(NULL),
 								pPixelShader(NULL),
+								pPSWithError(NULL),
 								pPSLinearGradients(NULL),
+								pPSLinGradWithError(NULL),
 								pComputeConstantColor(NULL),
 								pComputeLinearGradients(NULL),
 								pCCC_bi_interp(NULL),
@@ -23,17 +30,28 @@ Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles) : imag
 								pComputeGradients_cplg(NULL),
 								pUpdatePositions_cc(NULL),
 								pFiniteDifferences(NULL),
+								pComputeErrors_fin_diff(NULL),
 								pUpdatePositions_fin_diff(NULL),
+								pComputeErrors(NULL),
+								pComputeImageError(NULL),
 								VSInput(),
+								CSInput(),
+								CSfin_diff_Input(),
+								CSNum(),
 								nTriangles(numTriangles),
+								triangleGoal(numTriangles),
 								delaunayEveryNthIteration(10),
-								delaunayUntilNthIteration(100)
+								delaunayUntilNthIteration(100),
+								computeErrorInPS(true),
+								filename(file)
 {
 	VSInput.buffer_content.projMatrix = image->getProjectionMatrix();
 
 	CSInput.buffer_content.stepSize = 0.4f;
 	CSInput.buffer_content.width = image->getWidth();
 	CSInput.buffer_content.height = image->getHeight();
+	CSInput.buffer_content.trustRegion = 1.0f;
+	CSInput.buffer_content.damping = 0.001f;
 
 	CSfin_diff_Input.buffer_content.eps = 1;
 	CSfin_diff_Input.buffer_content.dxA = 1;
@@ -43,16 +61,23 @@ Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles) : imag
 	CSfin_diff_Input.buffer_content.dyB = 0;
 	CSfin_diff_Input.buffer_content.dyC = 0;
 	
-#if 0 
+#if	0 
 	testing(d3d->getImmediateContext());
 #else
 	createRegularGrid();
 	setRandomColors();
 	initializeTriangleGradients();
+
+	int ecsX = image->getWidth();
+	int ecsY = image->getHeight();
+	ecsX = ecsX % 16 == 0 ? ecsX / 16 : ecsX / 16 + 1;
+	ecsY = ecsY % 16 == 0 ? ecsY / 16 : ecsY / 16 + 1;
+	errorCS.buffer_content.resize(ecsX * ecsY, {0, 0, 0, 0});
+
 	//546, 51
-	std::cout << positions.buffer_content[indices.buffer_content[51 * 3]].x << " " << positions.buffer_content[indices.buffer_content[51 * 3]].y << std::endl;
-	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 1]].x << " " << positions.buffer_content[indices.buffer_content[51 * 3 + 1]].y << std::endl;
-	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].x << " " << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[0 * 3]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[0 * 3 + 1]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3 + 1]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[0 * 3 + 2]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3 + 2]].y << std::endl;
 	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].x - positions.buffer_content[indices.buffer_content[51 * 3 ]].x << std::endl;
 	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].y - positions.buffer_content[indices.buffer_content[51 * 3 ]].y << std::endl;
 	
@@ -74,6 +99,8 @@ bool Triangulator::create(ID3D11Device* device)
 	if (!CSInput.createBuffer(device)) return false;
 
 	if (!CSfin_diff_Input.createBuffer(device)) return false;
+
+	if (!CSNum.createBuffer(device)) return false;
 
 	D3D11_INPUT_ELEMENT_DESC inputLayout_desc[] =
 	{
@@ -101,10 +128,22 @@ bool Triangulator::create(ID3D11Device* device)
 	hr = device->CreatePixelShader(pBlob_ps->GetBufferPointer(), pBlob_ps->GetBufferSize(), NULL, &pPixelShader);
 	if (FAILED(hr)) return false;
 	
+	hr = D3DReadFileToBlob(L".\\shader\\PSWithError.cso", &pBlob_ps);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreatePixelShader(pBlob_ps->GetBufferPointer(), pBlob_ps->GetBufferSize(), NULL, &pPSWithError);
+	if (FAILED(hr)) return false;
+
 	hr = D3DReadFileToBlob(L".\\shader\\PSLinearGradients.cso", &pBlob_ps);
 	if (FAILED(hr)) return false;
 
 	hr = device->CreatePixelShader(pBlob_ps->GetBufferPointer(), pBlob_ps->GetBufferSize(), NULL, &pPSLinearGradients);
+	if (FAILED(hr)) return false;
+
+	hr = D3DReadFileToBlob(L".\\shader\\PSLinGradWithError.cso", &pBlob_ps);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreatePixelShader(pBlob_ps->GetBufferPointer(), pBlob_ps->GetBufferSize(), NULL, &pPSLinGradWithError);
 	if (FAILED(hr)) return false;
 
 	//read and create ComputeConstantColor compute shader
@@ -163,11 +202,39 @@ bool Triangulator::create(ID3D11Device* device)
 	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pFiniteDifferences);
 	if (FAILED(hr)) return false;
 
+	//read and create ComputeErrors_fin_diff compute shader
+	hr = D3DReadFileToBlob(L".\\shader\\ComputeErrorFinDiff.cso", &pBlob_cs);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pComputeErrors_fin_diff);
+	if (FAILED(hr)) return false;
+
 	//read and create UpdatePositionsFinDiff compute shader
 	hr = D3DReadFileToBlob(L".\\shader\\UpdatePositionsFinDiff.cso", &pBlob_cs);
 	if (FAILED(hr)) return false;
 
 	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pUpdatePositions_fin_diff);
+	if (FAILED(hr)) return false;
+
+	//read and create ComputeError compute shader
+	hr = D3DReadFileToBlob(L".\\shader\\ComputeError.cso", &pBlob_cs);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pComputeErrors);
+	if (FAILED(hr)) return false;
+
+	//read and create ComputePixelVariance compute shader
+	hr = D3DReadFileToBlob(L".\\shader\\ComputePixelVariance.cso", &pBlob_cs);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pComputePixelVariance);
+	if (FAILED(hr)) return false;
+
+	//read and create ComputeImageError compute shader
+	hr = D3DReadFileToBlob(L".\\shader\\ComputeImageError.cso", &pBlob_cs);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pComputeImageError);
 	if (FAILED(hr)) return false;
 
 
@@ -181,9 +248,9 @@ bool Triangulator::create(ID3D11Device* device)
 
 	if (!indices.createBuffer(device, D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
-	if (!colors.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, 0)) return false;
+	if (!colors.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;									//TODO: remove cpu access
 
-	if (!gradientCoefficients.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ)) return false; //TODO: remove cpu access
+	if (!gradientCoefficients.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false; //TODO: remove cpu access
 
 	if (!neighbor_list.createBuffer(device, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
@@ -191,9 +258,19 @@ bool Triangulator::create(ID3D11Device* device)
 
 	if (!indices_in_neighbor_list.createBuffer(device, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
-	if (!gradients_rtt.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ)) return false;
+	if (!gradients_rtt.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
-	if (!gradients_fin_diff.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ)) return false;
+	if (!colors_fin_diff.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
+	
+	if (!errors_fin_diff.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
+	
+	if (!errors.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
+	
+	if (!errorsPS.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
+	
+	if (!errorCS.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
+	
+	if (!pixel_variance.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
 
 	//compute colors once before positions get updated
@@ -218,14 +295,22 @@ void Triangulator::release()
 	neighbor_list.releaseBuffer();
 	indices_in_neighbor_list.releaseBuffer();
 	gradients_rtt.releaseBuffer();
-	gradients_fin_diff.releaseBuffer();
+	colors_fin_diff.releaseBuffer();
+	errors_fin_diff.releaseBuffer();
 	VSInput.releaseBuffer();
 	CSInput.releaseBuffer();
 	CSfin_diff_Input.releaseBuffer();
+	CSNum.releaseBuffer();
+	errors.releaseBuffer();
+	errorsPS.releaseBuffer();
+	errorCS.releaseBuffer();
+	pixel_variance.releaseBuffer();
 
 	SAFE_RELEASE(pVertexShader);
 	SAFE_RELEASE(pPixelShader);
+	SAFE_RELEASE(pPSWithError);
 	SAFE_RELEASE(pPSLinearGradients);
+	SAFE_RELEASE(pPSLinGradWithError);
 	SAFE_RELEASE(pComputeConstantColor);
 	SAFE_RELEASE(pComputeLinearGradients);
 	SAFE_RELEASE(pCCC_bi_interp);
@@ -235,19 +320,322 @@ void Triangulator::release()
 	SAFE_RELEASE(pUpdatePositions_cc);
 	SAFE_RELEASE(pUpdatePositions_fin_diff);
 	SAFE_RELEASE(pFiniteDifferences);
+	SAFE_RELEASE(pComputeErrors_fin_diff);
+	SAFE_RELEASE(pComputeErrors);
+	SAFE_RELEASE(pComputeImageError);
 	SAFE_RELEASE(pInputLayout);
 }
 
-void Triangulator::print_areas(ID3D11DeviceContext* immediateContext) 
+void Triangulator::insert_vertex_center(unsigned int tri_index, ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	//positions.gpuToCpu(immediateContext);
+	unsigned int indexA = indices.buffer_content[tri_index * 3];
+	unsigned int indexB = indices.buffer_content[tri_index * 3 + 1];
+	unsigned int indexC = indices.buffer_content[tri_index * 3 + 2];
+	
+	float center_x = (positions.buffer_content[indexA].x + positions.buffer_content[indexB].x + positions.buffer_content[indexC].x) / 3.0f;
+	float center_y = (positions.buffer_content[indexA].y + positions.buffer_content[indexB].y + positions.buffer_content[indexC].y) / 3.0f;
+
+	unsigned int newIndex = positions.buffer_content.size();
+	positions.buffer_content.push_back({ center_x, center_y });
+	is_on_border.push_back(false);
+
+	//triangle 1
+	indices.buffer_content[tri_index * 3 + 2] = newIndex;
+
+	//adjust neighbors of indexC, which will no longer have tri_index as neighbor
+	std::list<unsigned int> neighborsC;
+	for (unsigned int i : neighbors[indexC]) 
+	{
+		if (i != tri_index)
+			neighborsC.push_back(i);
+	}
+	neighbors[indexC] = neighborsC;
+
+	//triangle 2
+	indices.buffer_content.push_back(indexC);
+	indices.buffer_content.push_back(indexA);
+	indices.buffer_content.push_back(newIndex);
+
+	neighbors[indexA].push_back(nTriangles);
+	nTriangles += 1;
+	
+	//edge AC
+	int edge_ac = get_edge_index(indexA, indexC);
+	if (edge_ac != -1) 
+	{
+		std::tuple<unsigned int, unsigned int, unsigned int, unsigned int> edge = edges[edge_ac];
+		if (std::get<0>(edge) == tri_index)
+			edges[edge_ac] = std::make_tuple((unsigned int)nTriangles - 1, std::get<1>(edge), std::get<2>(edge), std::get<3>(edge));
+		else
+			edges[edge_ac] = std::make_tuple(std::get<0>(edge), (unsigned int)nTriangles - 1, std::get<2>(edge), std::get<3>(edge));
+
+	}
+
+	//triangle 3
+	indices.buffer_content.push_back(indexB);
+	indices.buffer_content.push_back(indexC);
+	indices.buffer_content.push_back(newIndex);
+
+	neighbors[indexB].push_back(nTriangles);
+	nTriangles += 1;
+
+	//edge BC
+	int edge_bc = get_edge_index(indexB, indexC);
+	if (edge_bc != -1)
+	{
+		std::tuple<unsigned int, unsigned int, unsigned int, unsigned int> edge = edges[edge_bc];
+		if (std::get<0>(edge) == tri_index)
+			edges[edge_bc] = std::make_tuple((unsigned int)nTriangles - 1, std::get<1>(edge), std::get<2>(edge), std::get<3>(edge));
+		else
+			edges[edge_bc] = std::make_tuple(std::get<0>(edge), (unsigned int)nTriangles - 1, std::get<2>(edge), std::get<3>(edge));
+
+	}
+
+	neighbors[indexC].push_back(nTriangles - 2);
+	neighbors[indexC].push_back(nTriangles - 1);
+
+	edges.push_back(std::make_tuple(tri_index, (unsigned int)nTriangles - 2, newIndex, indexA));
+	edges.push_back(std::make_tuple(tri_index, (unsigned int)nTriangles - 1, indexB, newIndex));
+	edges.push_back(std::make_tuple((unsigned int)nTriangles - 2, (unsigned int)nTriangles - 1, newIndex, indexC));
+
+	std::list<unsigned int> new_vertex_neighbors = { tri_index, (unsigned int)nTriangles - 2, (unsigned int)nTriangles - 1 };
+	neighbors.push_back(new_vertex_neighbors);
+
+	//updateDataOnGPU(device, immediateContext);
+	//buildNeighborBuffers();
+	//positions.cpuToGpu(device, immediateContext);
+	//indices.cpuToGpu(device, immediateContext);
+	//indices_in_neighbor_list.cpuToGpu(device, immediateContext);
+	//neighbor_count.cpuToGpu(device, immediateContext);
+	//neighbor_list.cpuToGpu(device, immediateContext);
+}
+
+void Triangulator::insert_triangle_into_triangle(unsigned int tri_index, std::vector<bool>& marked, ID3D11Device* device, ID3D11DeviceContext* immediateContext)
 {
 	positions.gpuToCpu(immediateContext);
-	for (int i = 0; i < indices.buffer_content.size() / 3; i++) 
+
+	unsigned int indexA = indices.buffer_content[tri_index * 3];
+	unsigned int indexB = indices.buffer_content[tri_index * 3 + 1];
+	unsigned int indexC = indices.buffer_content[tri_index * 3 + 2];
+
+	Vec2f A = positions.buffer_content[indexA];
+	Vec2f B = positions.buffer_content[indexB];
+	Vec2f C = positions.buffer_content[indexC];
+
+	Vec2f m_ab = { (A.x + B.x) / 2.0f, (A.y + B.y) / 2.0f };
+	Vec2f m_bc = { (B.x + C.x) / 2.0f, (B.y + C.y) / 2.0f };
+	Vec2f m_ca = { (C.x + A.x) / 2.0f, (C.y + A.y) / 2.0f };
+
+	if (tri_area(m_ab, m_bc, m_ca) <= 2)
+		return;
+
+	unsigned int index_mAB = positions.buffer_content.size();
+	positions.buffer_content.push_back(m_ab);
+	neighbors.push_back({ });
+	is_on_border.push_back(true);
+
+	unsigned int index_mBC = positions.buffer_content.size();
+	positions.buffer_content.push_back(m_bc);
+	neighbors.push_back({ });
+	is_on_border.push_back(true);
+
+	unsigned int index_mCA = positions.buffer_content.size();
+	positions.buffer_content.push_back(m_ca);
+	neighbors.push_back({ });
+	is_on_border.push_back(true);
+
+	//triangle inside
+	unsigned int index_middle_tri = nTriangles;
+	indices.buffer_content.push_back(index_mAB);
+	indices.buffer_content.push_back(index_mBC);
+	indices.buffer_content.push_back(index_mCA);
+	nTriangles += 1;
+
+	//change tri_index (becomes second new triangle inside)
+	indices.buffer_content[tri_index * 3 + 1] = index_mAB;
+	indices.buffer_content[tri_index * 3 + 2] = index_mCA;
+
+	//create third triangle inside
+	unsigned int index_mBm = nTriangles;
+	indices.buffer_content.push_back(index_mAB);
+	indices.buffer_content.push_back(indexB);
+	indices.buffer_content.push_back(index_mBC);
+	nTriangles += 1;
+
+	//create fourth triangle inside
+	unsigned int index_mCm = nTriangles;
+	indices.buffer_content.push_back(index_mBC);
+	indices.buffer_content.push_back(indexC);
+	indices.buffer_content.push_back(index_mCA);
+	nTriangles += 1;
+
+	std::list<unsigned int> neighbors_mAB = { tri_index, index_middle_tri, index_mBm };
+	neighbors[index_mAB] = neighbors_mAB;
+
+	std::list<unsigned int> neighbors_mBC = { index_mBm, index_middle_tri, index_mCm };
+	neighbors[index_mBC] = neighbors_mBC;
+
+	std::list<unsigned int> neighbors_mCA = { tri_index, index_middle_tri, index_mCm };
+	neighbors[index_mCA] = neighbors_mCA;
+
+	//check if there is a triangle next to edge AB
+	int edgeAB = get_edge_index(indexA, indexB);
+	unsigned int neighborAB = -1;
+
+	if (edgeAB != -1) 
 	{
-		float area = tri_area(positions.buffer_content[indices.buffer_content[i * 3]], positions.buffer_content[indices.buffer_content[i * 3 + 1]], positions.buffer_content[indices.buffer_content[i * 3 + 2]]);
-		if (area < 10)
-			std::cout << "triangle " << i << " area: " << area << std::endl;
-		std::flush(std::cout);
+		is_on_border[index_mAB] = false;
+		neighborAB = std::get<0>(edges[edgeAB]) == tri_index ? std::get<1>(edges[edgeAB]) : std::get<0>(edges[edgeAB]);
+
+		//get its third vertex not on the edge
+		unsigned int nIC;
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			nIC = indices.buffer_content[neighborAB * 3 + i];
+			if (std::get<2>(edges[edgeAB]) != nIC && std::get<3>(edges[edgeAB]) != nIC)
+				break;
+		}
+
+		indices.buffer_content[neighborAB * 3] = indexA;
+		indices.buffer_content[neighborAB * 3 + 1] = nIC;							//t1
+		indices.buffer_content[neighborAB * 3 + 2] = index_mAB;
+
+		if (neighborAB < marked.size())
+			marked[neighborAB] = true;
+
+		indices.buffer_content.push_back(index_mAB);
+		indices.buffer_content.push_back(nIC);										//t2
+		indices.buffer_content.push_back(indexB);
+		nTriangles += 1;
+
+		neighbors[indexB].push_back(nTriangles - 1);
+		neighbors[nIC].push_back(nTriangles - 1);
+		neighbors[index_mAB].push_back(nTriangles - 1);
+		neighbors[index_mAB].push_back(neighborAB);
+
+		std::list<unsigned int> nB;
+		for (auto n : neighbors[indexB])
+		{
+			if (n != neighborAB)
+				nB.push_back(n);
+		}
+		neighbors[indexB] = nB;
 	}
+	
+	//check if there is a triangle next to edge BC
+	int edgeBC = get_edge_index(indexB, indexC);
+	unsigned int neighborBC = -1;
+
+	if (edgeBC != -1)
+	{
+		is_on_border[index_mBC] = false;
+		neighborBC = std::get<0>(edges[edgeBC]) == tri_index ? std::get<1>(edges[edgeBC]) : std::get<0>(edges[edgeBC]);
+
+		//get its third vertex not on the edge
+		unsigned int nIC;
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			nIC = indices.buffer_content[neighborBC * 3 + i];
+			if (std::get<2>(edges[edgeBC]) != nIC && std::get<3>(edges[edgeBC]) != nIC)
+				break;
+		}
+
+		indices.buffer_content[neighborBC * 3] = indexB;
+		indices.buffer_content[neighborBC * 3 + 1] = nIC;							//t1
+		indices.buffer_content[neighborBC * 3 + 2] = index_mBC;
+
+		if (neighborBC < marked.size())
+			marked[neighborBC] = true;
+
+		indices.buffer_content.push_back(index_mBC);
+		indices.buffer_content.push_back(nIC);										//t2
+		indices.buffer_content.push_back(indexC);
+		nTriangles += 1;
+
+		//neighbors[indexB].push_back(index_mBm);
+		neighbors[indexC].push_back(nTriangles - 1);
+		neighbors[nIC].push_back(nTriangles - 1);
+		neighbors[index_mBC].push_back(nTriangles - 1);
+		neighbors[index_mBC].push_back(neighborBC);
+
+		std::list<unsigned int> nC;
+		for (auto n : neighbors[indexC])
+		{
+			if (n != neighborBC)
+				nC.push_back(n);
+		}
+		neighbors[indexC] = nC;
+	}
+
+	//check if there is a triangle next to edge CA
+	int edgeCA = get_edge_index(indexC, indexA);
+	unsigned int neighborCA = -1;
+
+	if (edgeCA != -1)
+	{
+		is_on_border[index_mCA] = false;
+		neighborCA = std::get<0>(edges[edgeCA]) == tri_index ? std::get<1>(edges[edgeCA]) : std::get<0>(edges[edgeCA]);
+
+		//get its third vertex not on the edge
+		unsigned int nIC;
+		for (unsigned int i = 0; i < 3; i++)
+		{
+			nIC = indices.buffer_content[neighborCA * 3 + i];
+			if (std::get<2>(edges[edgeCA]) != nIC && std::get<3>(edges[edgeCA]) != nIC)
+				break;
+		}
+
+		indices.buffer_content[neighborCA * 3] = indexC;
+		indices.buffer_content[neighborCA * 3 + 1] = nIC;							//t1
+		indices.buffer_content[neighborCA * 3 + 2] = index_mCA;
+
+		if (neighborCA < marked.size())
+			marked[neighborCA] = true;
+
+		indices.buffer_content.push_back(index_mCA);
+		indices.buffer_content.push_back(nIC);										//t2
+		indices.buffer_content.push_back(indexA);
+		nTriangles += 1;
+
+		//neighbors[indexC].push_back(index_mCm);
+		neighbors[indexA].push_back(nTriangles - 1);
+		neighbors[nIC].push_back(nTriangles - 1);
+		neighbors[index_mCA].push_back(nTriangles - 1);
+		neighbors[index_mCA].push_back(neighborCA);
+
+		std::list<unsigned int> nA;
+		for (auto n : neighbors[indexA])
+		{
+			if (n != neighborCA)
+				nA.push_back(n);
+		}
+		neighbors[indexA] = nA;
+	}
+
+	std::list<unsigned int> nB, nC;
+	for (auto n : neighbors[indexB])
+	{
+		if (n != tri_index)
+			nB.push_back(n);
+	}
+	neighbors[indexB] = nB;
+	neighbors[indexB].push_back(index_mBm);
+
+	for (auto n : neighbors[indexC])
+	{
+		if (n != tri_index)
+			nC.push_back(n);
+	}
+	neighbors[indexC] = nC;
+	neighbors[indexC].push_back(index_mCm);
+
+	nTriangles = indices.buffer_content.size() / 3;
+
+	//TODO
+	//buildNeighbors(false);
+	buildEdges();
+	updateDataOnGPU(device, immediateContext);
 }
 
 void Triangulator::draw(ID3D11DeviceContext* immediateContext, RenderMode mode)
@@ -258,21 +646,39 @@ void Triangulator::draw(ID3D11DeviceContext* immediateContext, RenderMode mode)
 	if ((iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
 	{
 		delaunay(d3d->getDevice(), immediateContext);
+		//delaunay_error_conscious(d3d->getDevice(), immediateContext);
 		std::cout << "delaunay done" << std::endl;
 		std::flush(std::cout);
 	}
 
-	if (mode == en_constant) 
+	if (mode == en_constant)
 	{
 #if 1	
-		if (iteration < 1210) 
+		if (iteration < 1210)
 		{
-			//computeGradients_rtt(immediateContext);
-			finite_differences(immediateContext);
+			computeGradients_rtt(immediateContext);
 			std::cout << "gradients computed" << std::endl;
-			//updatePositions(immediateContext);
-			updatePositions_fin_diff(immediateContext);
+			updatePositions(immediateContext);
 			std::cout << "positions updated" << std::endl;
+		}
+		if (iteration == -20 && iteration < 120)
+		{
+			//insertion(d3d->getDevice(), immediateContext);
+			insertion2(d3d->getDevice(), immediateContext);
+			std::cout << "size:                                                                        " << indices.buffer_content.size() / 3 << std::endl;
+			//computeErrors(immediateContext);
+			//float dev = compute_standard_deviation(immediateContext);
+
+			/*errors.gpuToCpu(immediateContext);
+			for (int i = 0; i < errors.buffer_content.size(); i++)
+			{
+				if (errors.buffer_content[i] > 0.25)
+				{
+					insert_vertex_center(i, d3d->getDevice(), immediateContext);
+					//insert_triangle_into_triangle(i, d3d->getDevice(), immediateContext);
+					std::cout << "vertex inserted" << std::endl;
+				}
+			}*/
 		}
 		//if (iteration > 50)
 		/*{
@@ -283,36 +689,63 @@ void Triangulator::draw(ID3D11DeviceContext* immediateContext, RenderMode mode)
 			}
 		}*/
 		//print_areas(immediateContext);
-		if (eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		if (iteration == 50 && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
 		{
 			std::cout << "eliminated at least one triangle" << std::endl;
 			//Sleep(1000);
 			std::cout << "sleeping end" << std::endl;
 		}
 #endif
+		if (iteration == -10)//1256.296296, 253.33
+			insert_vertex_center(100, d3d->getDevice(), immediateContext);
+		//insert_triangle_into_triangle(647, d3d->getDevice(), immediateContext);
 		computeConstantColors(immediateContext);
+
+		if (iteration == -20)
+		{
+			colors.gpuToCpu(immediateContext);
+			std::cout << colors.buffer_content[720].r << " " << colors.buffer_content[720].g << " " << colors.buffer_content[720].b << std::endl;
+			std::cout << indices.buffer_content[720 * 3] << " " << indices.buffer_content[720 * 3 + 1] << " " << indices.buffer_content[720 * 3 + 2] << std::endl;
+			std::cout << positions.buffer_content[210].x << " " << " " << positions.buffer_content[210].y << std::endl;
+			std::cout << positions.buffer_content[190].x << " " << " " << positions.buffer_content[190].y << std::endl;
+			std::cout << positions.buffer_content[397].x << " " << " " << positions.buffer_content[397].y << std::endl;
+		}
 		//ccc_bi_interp(immediateContext);
+
+		//computePixelVariance(immediateContext);
+		//pixel_variance.gpuToCpu(immediateContext);
+		//for (int o = 0; o < pixel_variance.buffer_content.size(); o++)
+			//std::cout << "pixel_variance: " << pixel_variance.buffer_content[o].r << " " << pixel_variance.buffer_content[o].g << " " << pixel_variance.buffer_content[o].b << std::endl;
+
 		render(immediateContext, mode);
 		//if (iteration > 10)
 			//Sleep(500);
 	}
-	else if (mode == en_linear) 
+	else if (mode == en_linear)
 	{
 		//updatePositions_linGrad(immediateContext);
 		//computeLinearGradients(immediateContext);
-		clg_bi_interp(immediateContext);
+		//clg_bi_interp(immediateContext);
 
-		if (iteration < -121)
+		if (iteration < 1210)
 		{
 			computeGradients_cplg(immediateContext);
 			std::cout << "gradients computed" << std::endl;
 			updatePositions(immediateContext);
 			std::cout << "positions updated" << std::endl;
 		}
-		//computeLinearGradients(immediateContext);
+		computeLinearGradients(immediateContext);
 		//clg_bi_interp(immediateContext);
 
-		gradientCoefficients.gpuToCpu(immediateContext);
+		gradients_rtt.gpuToCpu(immediateContext);
+		std::cout << gradients_rtt.buffer_content[0].grABCx << std::endl;
+
+		//gradientCoefficients.gpuToCpu(immediateContext);
+		//std::cout << gradientCoefficients.buffer_content[0].r_a << " " << gradientCoefficients.buffer_content[0].r_b << " " << gradientCoefficients.buffer_content[0].r_c << std::endl;
+		//std::cout << gradientCoefficients.buffer_content[0].g_a << " " << gradientCoefficients.buffer_content[0].g_b << " " << gradientCoefficients.buffer_content[0].g_c << std::endl;
+		//std::cout << gradientCoefficients.buffer_content[0].b_a << " " << gradientCoefficients.buffer_content[0].b_b << " " << gradientCoefficients.buffer_content[0].b_c << std::endl;
+
+		/*gradientCoefficients.gpuToCpu(immediateContext);
 		//std::cout << gradientCoefficients.buffer_content[51].r_b << std::endl;
 		std::cout << "Triangle 51 - R_a " << gradientCoefficients.buffer_content[51].r_a << std::endl;
 		std::cout << "Triangle 51 - R_b " << gradientCoefficients.buffer_content[51].r_b << std::endl;
@@ -322,11 +755,190 @@ void Triangulator::draw(ID3D11DeviceContext* immediateContext, RenderMode mode)
 		std::cout << "Triangle 51 - G_c " << gradientCoefficients.buffer_content[51].g_c << std::endl;
 		std::cout << "Triangle 51 - B_a " << gradientCoefficients.buffer_content[51].b_a << std::endl;
 		std::cout << "Triangle 51 - B_b " << gradientCoefficients.buffer_content[51].b_b << std::endl;
-		std::cout << "Triangle 51 - B_c " << gradientCoefficients.buffer_content[51].b_c << std::endl;
+		std::cout << "Triangle 51 - B_c " << gradientCoefficients.buffer_content[51].b_c << std::endl;*/
+		render(immediateContext, mode);
+	}
+	//errorsPS.gpuToCpu(immediateContext);
+	//computeErrors(immediateContext);
+	//errors.gpuToCpu(immediateContext);
+	//float errR = (float)errorsPS.buffer_content[254].r;// / (255.0f * 255.0f);
+	//float errG = (float)errorsPS.buffer_content[254].g;// / (255.0f * 255.0f);
+	//float errB = (float)errorsPS.buffer_content[254].b;// / (255.0f * 255.0f);
+	//std::cout << "The error for the 154th triangle is: " << errR << ", " << errG << ", " << errB << std::endl;
+	//std::cout << "The error for the 154th triangle is: " << (errR + errG + errB) / 3.0f << std::endl;
+	//std::cout << "Without pixel shader: " << (errors.buffer_content[254]) / 3.0f << std::endl;
+	if (computeErrorInPS) 
+	{
+		float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+		std::cout << "The image error is: " << err << std::endl;
+	}
+	std::cout << iteration << " cycle(s) done" << std::endl;
+}
+
+void Triangulator::draw_fin_diff(ID3D11DeviceContext* immediateContext, RenderMode mode)
+{
+	static int iteration = 0;
+	iteration++;
+	if ((iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
+	{
+		delaunay(d3d->getDevice(), immediateContext);
+		std::cout << "delaunay done" << std::endl;
+		std::flush(std::cout);
+	}
+
+	if (mode == en_constant)
+	{
+#if 1	
+		if (iteration < 1210)
+		{
+			float plmi = (iteration % 2 == 0) ? -1.0f : 1.0f;
+			if (iteration % 5 == 1 || iteration % 5 == 2) 
+			{
+				finite_differences(plmi, immediateContext);
+				std::cout << "colors " << plmi << " computed" << std::endl;
+			}
+			else if (iteration % 5 == 3 || iteration % 5 == 4)
+			{
+				computeErrors_fin_diff(plmi, immediateContext);
+				std::cout << "errors " << plmi << " computed" << std::endl;
+			}
+			if (iteration % 5 == 0) 
+			{
+				updatePositions_fin_diff(immediateContext);
+				//positions.gpuToCpu(immediateContext);
+				//for (int o = 0; o < positions.buffer_content.size(); o++)
+					//std::cout << "gradient of vertex " << o << ": " << positions.buffer_content[o].x << " " << positions.buffer_content[o].y << std::endl;
+				std::cout << "positions updated" << std::endl;
+				colors_fin_diff.gpuToCpu(immediateContext);
+				errors_fin_diff.gpuToCpu(immediateContext);
+				/*std::cout << "Ax, color_pl: " << colors_fin_diff.buffer_content[10].colors[0] << " " << colors_fin_diff.buffer_content[10].colors[1] << " " << colors_fin_diff.buffer_content[10].colors[2] << std::endl;
+				std::cout << "Ax, color_mi: " << colors_fin_diff.buffer_content[10].colors[3] << " " << colors_fin_diff.buffer_content[10].colors[4] << " " << colors_fin_diff.buffer_content[10].colors[5] << std::endl;
+				std::cout << "Bx, color_pl: " << colors_fin_diff.buffer_content[10].colors[12] << " " << colors_fin_diff.buffer_content[10].colors[13] << " " << colors_fin_diff.buffer_content[10].colors[14] << std::endl;
+				std::cout << "Bx, color_mi: " << colors_fin_diff.buffer_content[10].colors[15] << " " << colors_fin_diff.buffer_content[10].colors[16] << " " << colors_fin_diff.buffer_content[10].colors[17] << std::endl;
+				std::cout << "Ax, error_pl: " << errors_fin_diff.buffer_content[10].colors[0] << " " << errors_fin_diff.buffer_content[10].colors[1] << " " << errors_fin_diff.buffer_content[10].colors[2] << std::endl;
+				std::cout << "Ax, error_mi: " << errors_fin_diff.buffer_content[10].colors[3] << " " << errors_fin_diff.buffer_content[10].colors[4] << " " << errors_fin_diff.buffer_content[10].colors[5] << std::endl;
+				std::cout << "Bx, error_pl: " << errors_fin_diff.buffer_content[10].colors[12] << " " << errors_fin_diff.buffer_content[10].colors[13] << " " << errors_fin_diff.buffer_content[10].colors[14] << std::endl;
+				std::cout << "Bx, error_mi: " << errors_fin_diff.buffer_content[10].colors[15] << " " << errors_fin_diff.buffer_content[10].colors[16] << " " << errors_fin_diff.buffer_content[10].colors[17] << std::endl;
+				*/
+			}
+		}
+		//if (iteration > 50)
+		/*{
+			gradients_rtt.gpuToCpu(immediateContext);
+			for (int i = 0; i < gradients_rtt.buffer_content.size(); i++)
+			{
+				std::cout << "Triangle " << i << " gradient_x when moving C : " << gradients_rtt.buffer_content[i].grABCx << std::endl;
+			}
+		}*/
+		/*if (iteration < 50 && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		{
+			std::cout << "eliminated at least one triangle" << std::endl;
+			//Sleep(1000);
+			std::cout << "sleeping end" << std::endl;
+		}*/
+#endif
+		computeConstantColors(immediateContext);
+		render(immediateContext, mode);
+	}
+
+	std::cout << iteration << " cycle(s) done" << std::endl;
+}
+
+void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode)
+{
+	std::string path = "E:\\Uni\\Masterarbeit\\csv\\" + filename + ".csv";
+	static int iteration = 1;
+	
+	/*if (iteration > 1) 
+	{
+		computeImageErrorCS(immediateContext);
+		float err = getTotalError(d3d->getDevice(), immediateContext);
+		std::cout << "The error computed by the compute shader is: " << err << std::endl;
+	}*/
+
+	//if ((iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
+	//if (triangleGoal > nTriangles && delaunayUntilNthIteration > iteration)
+	//{
+	//	delaunay(d3d->getDevice(), immediateContext);
+	//	//delaunay_error_conscious(d3d->getDevice(), immediateContext);
+	//	std::cout << "delaunay done" << std::endl;
+	//	std::flush(std::cout);
+	//}
+
+	if (mode == en_constant)
+	{
+		if (iteration > 1) 
+		{
+			errorsPS.gpuToCpu(immediateContext); //changed here (added)
+			float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+			computeErrors(immediateContext);
+			errors.gpuToCpu(immediateContext);
+			float e = (errorsPS.buffer_content[10].r + errorsPS.buffer_content[10].g + errorsPS.buffer_content[10].b) / 3.0f;
+			e = sqrt(0.5f * (e / errorsPS.buffer_content[10].a));
+			std::cout << "errorsPS: " << e;
+			float ee = sqrt(errors.buffer_content[10] * 0.5f * 255 * 255);
+			std::cout << "error: " << ee;
+
+			//std::cout << "error is: " << err << std::endl;
+			//writeErrorToFile(path, iteration - 1, err);
+		}
+		if (iteration < 1210)
+		{
+			computeGradients_rtt(immediateContext);
+			std::cout << "gradients computed" << std::endl;
+			updatePositions(immediateContext);
+			std::cout << "positions updated" << std::endl;
+		}
+		if (iteration > 2 && triangleGoal > nTriangles) 
+		{
+			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
+			std::cout << triangleGoal << " " << nTriangles << std::endl;
+			insertionV3(d3d->getDevice(), immediateContext);
+
+			if (delaunayUntilNthIteration > iteration)
+			{
+				delaunay(d3d->getDevice(), immediateContext);
+				std::cout << "delaunay done" << std::endl;
+				std::flush(std::cout);
+			}
+		}
+
+		if (triangleGoal > nTriangles && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		{
+			std::cout << "eliminated at least one triangle" << std::endl;
+			//Sleep(1000);
+			std::cout << "sleeping end" << std::endl;
+		}
+
+		computeConstantColors(immediateContext);
+
+		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
+
+		render(immediateContext, mode);
+		//d3d->saveImageFromBackBuffer();
+	}
+	else if (mode == en_linear)
+	{
+		if (iteration < 1210)
+		{
+			computeGradients_cplg(immediateContext);
+			std::cout << "gradients computed" << std::endl;
+			updatePositions(immediateContext);
+			std::cout << "positions updated" << std::endl;
+		}
+		computeLinearGradients(immediateContext);
+
 		render(immediateContext, mode);
 	}
 	
+	if (computeErrorInPS)
+	{
+		//float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+		//std::cout << "The image error is: " << err << std::endl;
+	}
 	std::cout << iteration << " cycle(s) done" << std::endl;
+	std::cout << nTriangles << " triangles are drawn" << std::endl;
+	iteration++;
 }
 
 
@@ -344,39 +956,83 @@ void Triangulator::render(ID3D11DeviceContext* immediateContext, RenderMode mode
 
 	//set shaders and shader resources
 	immediateContext->VSSetShader(pVertexShader, NULL, 0);
-	if (mode == en_constant) 
-	{
-		immediateContext->PSSetShader(pPixelShader, NULL, 0);
-		ID3D11ShaderResourceView* srvs[] = { colors.getShaderResourceView() };
-		immediateContext->PSSetShaderResources(0, 1, srvs);
-	}
-	else if (mode == en_linear) 
-	{
-		immediateContext->PSSetShader(pPSLinearGradients, NULL, 0);
-		ID3D11ShaderResourceView* srvs[] = { gradientCoefficients.getShaderResourceView() };
-		immediateContext->PSSetShaderResources(0, 1, srvs);
-	}
-
+	
 	ID3D11Buffer* CB_VS[] = { VSInput.getBuffer() };
 	immediateContext->VSSetConstantBuffers(0, 1, CB_VS);
+	
+	if (!computeErrorInPS) 
+	{
+		if (mode == en_constant) 
+		{
+			immediateContext->PSSetShader(pPixelShader, NULL, 0);
+			ID3D11ShaderResourceView* srvs[] = { colors.getShaderResourceView() };
+			immediateContext->PSSetShaderResources(0, 1, srvs);
+		}
+		else if (mode == en_linear) 
+		{
+			immediateContext->PSSetShader(pPSLinearGradients, NULL, 0);
+			ID3D11ShaderResourceView* srvs[] = { gradientCoefficients.getShaderResourceView() };
+			immediateContext->PSSetShaderResources(0, 1, srvs);
+		}
 
-	//set render target
-	ID3D11RenderTargetView* rtviews[] = { d3d->getRenderTargetView_Backbuffer() };
-	immediateContext->OMSetRenderTargets(1, rtviews, d3d->getDepthStencilView_Backbuffer());
-	//immediateContext->RSSetState();
 
+		//set render target
+		ID3D11RenderTargetView* rtviews[] = { d3d->getRenderTargetView_Backbuffer() };
+		immediateContext->OMSetRenderTargets(1, rtviews, d3d->getDepthStencilView_Backbuffer());
+		//immediateContext->RSSetState();
+	}
+	else 
+	{
+		if (mode == en_constant)
+		{
+			immediateContext->PSSetShader(pPSWithError, NULL, 0);
+			ID3D11ShaderResourceView* srvs[] = { colors.getShaderResourceView(), image->getShaderResourceView() };
+			immediateContext->PSSetShaderResources(0, 2, srvs);
+		}
+		else if (mode == en_linear)
+		{
+			immediateContext->PSSetShader(pPSLinGradWithError, NULL, 0);
+			ID3D11ShaderResourceView* srvs[] = { gradientCoefficients.getShaderResourceView(), image->getShaderResourceView() };
+			immediateContext->PSSetShaderResources(0, 1, srvs);
+		}
+
+		ID3D11UnorderedAccessView* uavs[] = { errorsPS.getUnorderedAccessView() };
+
+
+		//set render target
+		ID3D11RenderTargetView* rtviews[] = { d3d->getRenderTargetView_Backbuffer() };
+		UINT initialCounts[] = { 0, 0, 0, 0 };
+		immediateContext->OMSetRenderTargetsAndUnorderedAccessViews(1, rtviews, d3d->getDepthStencilView_Backbuffer(), 1, 1, uavs, initialCounts);
+	}
 	//draw
 	//immediatContext->Draw((UINT)sizeof(positions.buffer_content), 0);
 	immediateContext->DrawIndexed((UINT)indices.buffer_content.size(), 0, 0);
 
 
 	//cleanup
-	ID3D11Buffer* clean_vb[] = { NULL };
-	UINT clean_strides[] = { 0 };
-	immediateContext->IASetVertexBuffers(0, 1, clean_vb, clean_strides, offsets);
+	if (!computeErrorInPS) 
+	{
+		ID3D11Buffer* clean_vb[] = { NULL };
+		UINT clean_strides[] = { 0 };
+		immediateContext->IASetVertexBuffers(0, 1, clean_vb, clean_strides, offsets);
 
-	ID3D11ShaderResourceView* clean_srv[] = { NULL };
-	immediateContext->PSSetShaderResources(0, 1, clean_srv);
+		ID3D11ShaderResourceView* clean_srv[] = { NULL };
+		immediateContext->PSSetShaderResources(0, 1, clean_srv);
+	}
+	else 
+	{
+		ID3D11Buffer* clean_vb[] = { NULL };
+		UINT clean_strides[] = { 0 };
+		immediateContext->IASetVertexBuffers(0, 1, clean_vb, clean_strides, offsets);
+
+		ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL };
+		immediateContext->PSSetShaderResources(0, 2, clean_srv);
+
+		ID3D11UnorderedAccessView* clear_uavs[] = { NULL };
+		UINT initialCounts[] = { 0, 0, 0, 0 };
+		ID3D11RenderTargetView* clear_rtvs[] = { NULL };
+		immediateContext->OMSetRenderTargetsAndUnorderedAccessViews(1, clear_rtvs, d3d->getDepthStencilView_Backbuffer(), 1, 1, clear_uavs, initialCounts);
+	}
 }
 
 void Triangulator::computeConstantColors(ID3D11DeviceContext* immediateContext) 
@@ -389,11 +1045,17 @@ void Triangulator::computeConstantColors(ID3D11DeviceContext* immediateContext)
 	ID3D11UnorderedAccessView* ccc_uav[] = { colors.getUnorderedAccessView() };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, ccc_uav, NULL);
 
+	CSNum.buffer_content.num = indices.buffer_content.size() / 3;
+	CSNum.updateBuffer(immediateContext);
+
+	ID3D11Buffer* CB_CS[] = { CSNum.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
 	UINT groupsX = (UINT)colors.buffer_content.size();
-	if (groupsX % 256 == 0)
-		groupsX /= 256;
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
 	else
-		groupsX = groupsX / 256 + 1;
+		groupsX = groupsX / 64 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);
 
 
@@ -538,37 +1200,36 @@ void Triangulator::computeGradients_cplg(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
 }
 
-void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
+void Triangulator::finite_differences(float plmi, ID3D11DeviceContext* immediateContext)
 {
 	immediateContext->CSSetShader(pFiniteDifferences, NULL, 0);//TODO: beide funktionen, updatePositions_fin_diff.hlsl, srvs und uavs, buffer für Farben von verschobenen Dreiecken
 
 	ID3D11ShaderResourceView* up_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), image->getShaderResourceView() };
 	immediateContext->CSSetShaderResources(0, 3, up_srv);
 
-	ID3D11UnorderedAccessView* up_uav[] = { gradients_fin_diff.getUnorderedAccessView() };
+	ID3D11UnorderedAccessView* up_uav[] = { colors_fin_diff.getUnorderedAccessView() };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, up_uav, NULL);
 
-	CSfin_diff_Input.buffer_content.dxA = 1; CSfin_diff_Input.buffer_content.dxB = 0; CSfin_diff_Input.buffer_content.dxC = 0;
+	CSfin_diff_Input.buffer_content.dxA = 1.0f; CSfin_diff_Input.buffer_content.dxB = 0; CSfin_diff_Input.buffer_content.dxC = 0;
 	CSfin_diff_Input.buffer_content.dyA = 0; CSfin_diff_Input.buffer_content.dyB = 0; CSfin_diff_Input.buffer_content.dyC = 0;
-	CSfin_diff_Input.buffer_content.eps = 1;
+	CSfin_diff_Input.buffer_content.eps = plmi;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
-	if (groupsX % 256 == 0)
-		groupsX /= 256;
+	if (groupsX % 128 == 0)
+		groupsX /= 128;
 	else
-		groupsX = groupsX / 256 + 1;
+		groupsX = groupsX / 128 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
-	//TODO: UpdateBuffer
 
 	ID3D11Buffer* clean_cb[] = { NULL };
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dxA = 0;
-	CSfin_diff_Input.buffer_content.dyA = 1;
+	CSfin_diff_Input.buffer_content.dyA = 1.0f;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
@@ -580,7 +1241,7 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dyA = 0;
-	CSfin_diff_Input.buffer_content.dxB = 1;
+	CSfin_diff_Input.buffer_content.dxB = 1.0f;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
@@ -592,7 +1253,7 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dxB = 0;
-	CSfin_diff_Input.buffer_content.dyB = 1;
+	CSfin_diff_Input.buffer_content.dyB = 1.0f;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
@@ -604,7 +1265,7 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dyB = 0;
-	CSfin_diff_Input.buffer_content.dxC = 1;
+	CSfin_diff_Input.buffer_content.dxC = 1.0f;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
@@ -616,7 +1277,7 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dxC = 0;
-	CSfin_diff_Input.buffer_content.dyC = 1;
+	CSfin_diff_Input.buffer_content.dyC = 1.0f;
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
@@ -626,7 +1287,7 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+	/*immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
 	CSfin_diff_Input.buffer_content.dyC = 0;
 	CSfin_diff_Input.buffer_content.dxA = 1;
@@ -634,7 +1295,6 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	CSfin_diff_Input.updateBuffer(immediateContext);
 
 	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
-
 	//ID3D11Buffer* clean_cb[] = { NULL };
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 
@@ -694,10 +1354,109 @@ void Triangulator::finite_differences(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	immediateContext->Dispatch(groupsX, 1, 1);											//dyC
+	*/
 
 	//cleanup
 	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL };
 	immediateContext->CSSetShaderResources(0, 3, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+
+	//ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+}
+
+void Triangulator::computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pComputeErrors_fin_diff, NULL, 0);
+
+	ID3D11ShaderResourceView* up_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), colors_fin_diff.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 4, up_srv);
+
+	ID3D11UnorderedAccessView* up_uav[] = { errors_fin_diff.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, up_uav, NULL);
+
+	CSfin_diff_Input.buffer_content.dxA = 1.0f; CSfin_diff_Input.buffer_content.dxB = 0; CSfin_diff_Input.buffer_content.dxC = 0;
+	CSfin_diff_Input.buffer_content.dyA = 0; CSfin_diff_Input.buffer_content.dyB = 0; CSfin_diff_Input.buffer_content.dyC = 0;
+	CSfin_diff_Input.buffer_content.eps = plmi;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
+	if (groupsX % 128 == 0)
+		groupsX /= 128;
+	else
+		groupsX = groupsX / 128 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
+	//TODO: UpdateBuffer
+
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	CSfin_diff_Input.buffer_content.dxA = 0;
+	CSfin_diff_Input.buffer_content.dyA = 1.0f;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	immediateContext->Dispatch(groupsX, 1, 1);											//dyA
+
+	//ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	CSfin_diff_Input.buffer_content.dyA = 0;
+	CSfin_diff_Input.buffer_content.dxB = 1.0f;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	immediateContext->Dispatch(groupsX, 1, 1);											//dxB
+
+	//ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	CSfin_diff_Input.buffer_content.dxB = 0;
+	CSfin_diff_Input.buffer_content.dyB = 1.0f;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	immediateContext->Dispatch(groupsX, 1, 1);											//dyB
+
+	//ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	CSfin_diff_Input.buffer_content.dyB = 0;
+	CSfin_diff_Input.buffer_content.dxC = 1.0f;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	immediateContext->Dispatch(groupsX, 1, 1);											//dxC
+
+	//ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	CSfin_diff_Input.buffer_content.dxC = 0;
+	CSfin_diff_Input.buffer_content.dyC = 1.0f;
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	immediateContext->Dispatch(groupsX, 1, 1);											//dyC
+
+
+	//cleanup
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 4, clean_srv);
 
 	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
@@ -744,7 +1503,7 @@ void Triangulator::updatePositions_fin_diff(ID3D11DeviceContext* immediateContex
 {
 	immediateContext->CSSetShader(pUpdatePositions_fin_diff, NULL, 0);
 
-	ID3D11ShaderResourceView* up_srv[] = { indices.getShaderResourceView(), gradients_fin_diff.getShaderResourceView(),
+	ID3D11ShaderResourceView* up_srv[] = { indices.getShaderResourceView(), errors_fin_diff.getShaderResourceView(),
 											neighbor_list.getShaderResourceView(), indices_in_neighbor_list.getShaderResourceView(),
 											neighbor_count.getShaderResourceView(), image->getShaderResourceView() };
 	immediateContext->CSSetShaderResources(0, 6, up_srv);
@@ -772,6 +1531,159 @@ void Triangulator::updatePositions_fin_diff(ID3D11DeviceContext* immediateContex
 
 	ID3D11Buffer* clean_cb[] = { NULL };
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+}
+
+void Triangulator::computeErrors(ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pComputeErrors, NULL, 0);
+
+	ID3D11ShaderResourceView* ccc_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), colors.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 4, ccc_srv);
+
+	ID3D11UnorderedAccessView* ccc_uav[] = { errors.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, ccc_uav, NULL);
+
+	UINT groupsX = (UINT)errors.buffer_content.size();
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
+	else
+		groupsX = groupsX / 64 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);
+
+
+	//cleanup
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 4, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+}
+
+void Triangulator::computePixelVariance(ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pComputePixelVariance, NULL, 0);
+
+	ID3D11ShaderResourceView* ccc_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 3, ccc_srv);
+
+	ID3D11UnorderedAccessView* ccc_uav[] = { pixel_variance.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, ccc_uav, NULL);
+
+	CSNum.buffer_content.num = indices.buffer_content.size() / 3;
+	CSNum.updateBuffer(immediateContext);
+
+	ID3D11Buffer* CB_CS[] = { CSNum.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	UINT groupsX = (UINT)pixel_variance.buffer_content.size();
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
+	else
+		groupsX = groupsX / 64 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);
+
+
+	//cleanup
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 3, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+}
+
+void Triangulator::computeImageErrorCS(ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pComputeImageError, NULL, 0);
+
+	ID3D11ShaderResourceView* srv[] = { image->getShaderResourceView(), d3d->getShaderResourceView_RT() };
+	immediateContext->CSSetShaderResources(0, 2, srv);
+
+	ID3D11UnorderedAccessView* uav[] = { errorCS.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, uav, NULL);
+
+	//CSNum.buffer_content.num = indices.buffer_content.size() / 3;
+	//CSNum.updateBuffer(immediateContext);
+
+	//ID3D11Buffer* CB_CS[] = { CSNum.getBuffer() };
+	//immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
+	UINT groupsX = (UINT)image->getWidth();
+	if (groupsX % 16 == 0)
+		groupsX /= 16;
+	else
+		groupsX = groupsX / 16 + 1;
+
+	UINT groupsY = (UINT)image->getHeight();
+	if (groupsY % 16 == 0)
+		groupsY /= 16;
+	else
+		groupsY = groupsY / 16 + 1;
+	immediateContext->Dispatch(groupsX, groupsY, 1);
+
+
+	//cleanup
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 2, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+}
+
+void Triangulator::print_areas(ID3D11DeviceContext* immediateContext)
+{
+	positions.gpuToCpu(immediateContext);
+	for (int i = 0; i < indices.buffer_content.size() / 3; i++)
+	{
+		float area = tri_area(positions.buffer_content[indices.buffer_content[i * 3]], positions.buffer_content[indices.buffer_content[i * 3 + 1]], positions.buffer_content[indices.buffer_content[i * 3 + 2]]);
+		if (area < 10)
+			std::cout << "triangle " << i << " area: " << area << std::endl;
+		std::flush(std::cout);
+	}
+}
+
+float Triangulator::compute_standard_deviation(ID3D11DeviceContext* immediateContext) 
+{
+	//errors.gpuToCpu(immediateContext);
+
+	float mean = 0;
+	for (int i = 0; i < errors.buffer_content.size(); i++) 
+	{
+		mean += errors.buffer_content[i];
+	}
+	//std::cout << "mean before division: " << mean << std::endl;
+	mean /= (float)errors.buffer_content.size();
+	//std::cout << "mean: " << mean << std::endl;
+	float dev = 0;
+	for (int i = 0; i < errors.buffer_content.size(); i++)
+	{
+		dev += (errors.buffer_content[i] - mean) * (errors.buffer_content[i] - mean);
+	}
+	dev = sqrt(dev / (errors.buffer_content.size() - 1));
+
+	return dev;
+}
+
+float Triangulator::compute_standard_deviation2(ID3D11DeviceContext* immediateContext)
+{
+	float mean = 0;
+	for (int i = 0; i < pixel_variance.buffer_content.size(); i++) 
+	{
+		mean += (pixel_variance.buffer_content[i].r + pixel_variance.buffer_content[i].g + pixel_variance.buffer_content[i].b) / 3.0f;
+	}
+	mean /= (float)pixel_variance.buffer_content.size();
+
+	float dev = 0;
+	for (int i = 0; i < pixel_variance.buffer_content.size(); i++) 
+	{
+		float rgb = (pixel_variance.buffer_content[i].r + pixel_variance.buffer_content[i].g + pixel_variance.buffer_content[i].b) / 3.0f;
+		dev += (rgb - mean) * (rgb - mean);
+	}
+	dev = sqrt(dev / (pixel_variance.buffer_content.size() - 1));
+
+	return dev;
 }
 
 void Triangulator::delaunay(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
@@ -904,9 +1816,193 @@ void Triangulator::delaunay(ID3D11Device* device, ID3D11DeviceContext* immediate
 					neighborsB.push_back(i);
 			}
 			neighbors[indexB] = neighborsB;
-			
+
 			//push edges that exist and are not on the stack
 			if (cb != -1 && !on_stack[cb]) 
+			{
+				edges_stack.push(cb);
+				on_stack[cb] = true;
+			}
+			if (ca != -1 && !on_stack[ca])
+			{
+				edges_stack.push(ca);
+				on_stack[ca] = true;
+			}
+			if (db != -1 && !on_stack[db])
+			{
+				edges_stack.push(db);
+				on_stack[db] = true;
+			}
+			if (da != -1 && !on_stack[da])
+			{
+				edges_stack.push(da);
+				on_stack[da] = true;
+			}
+		}
+	}
+
+	if (changes)
+	{
+		buildNeighborBuffers();
+		indices.cpuToGpu(device, immediateContext);
+		indices_in_neighbor_list.cpuToGpu(device, immediateContext);
+		neighbor_count.cpuToGpu(device, immediateContext);
+		neighbor_list.cpuToGpu(device, immediateContext);
+	}
+}
+
+void Triangulator::delaunay_error_conscious(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	positions.gpuToCpu(immediateContext);
+
+	bool changes = false;
+
+	std::stack<unsigned int> edges_stack;
+	std::vector<bool> on_stack;
+
+	on_stack.resize(edges.size());
+	for (unsigned int i = 0; i < edges.size(); i++)
+	{
+		edges_stack.push(i);
+		on_stack[i] = true;
+	}
+
+	while (!edges_stack.empty())
+	{
+		unsigned int current_edge_index = edges_stack.top();
+		std::tuple<unsigned int, unsigned int, unsigned int, unsigned int> edge = edges[current_edge_index];
+		on_stack[current_edge_index] = false;
+		edges_stack.pop();
+
+		unsigned int tri_index = std::get<0>(edge);
+		unsigned int neighbor_index = std::get<1>(edge);
+
+		unsigned int tI = tri_index * 3;
+		unsigned int nI = neighbor_index * 3;
+
+		unsigned int tri_indexA = indices.buffer_content[tI], tri_indexB = indices.buffer_content[tI + 1], tri_indexC = indices.buffer_content[tI + 2];
+		unsigned int n_indexA = indices.buffer_content[nI], n_indexB = indices.buffer_content[nI + 1], n_indexC = indices.buffer_content[nI + 2];
+
+		unsigned int indexA = std::get<2>(edge), indexB = std::get<3>(edge), indexC, indexD;
+
+		if (tri_indexA != indexA && tri_indexA != indexB)
+		{
+			indexC = tri_indexA;
+		}
+		else if (tri_indexB != indexA && tri_indexB != indexB)
+		{
+			indexC = tri_indexB;
+		}
+		else
+		{
+			indexC = tri_indexC;
+		}
+
+		if (n_indexA != indexA && n_indexA != indexB)
+		{
+			indexD = n_indexA;
+		}
+		else if (n_indexB != indexA && n_indexB != indexB)
+		{
+			indexD = n_indexB;
+		}
+		else
+		{
+			indexD = n_indexC;
+		}
+
+		Vec2f A = positions.buffer_content[indexA];
+		Vec2f B = positions.buffer_content[indexB];
+		Vec2f C = positions.buffer_content[indexC];
+		Vec2f D = positions.buffer_content[indexD];
+
+		float mat_elements[9] = { A.x - D.x, A.y - D.y, (A.x - D.x) * (A.x - D.x) + (A.y - D.y) * (A.y - D.y),
+									B.x - D.x, B.y - D.y, (B.x - D.x) * (B.x - D.x) + (B.y - D.y) * (B.y - D.y),
+									C.x - D.x, C.y - D.y, (C.x - D.x) * (C.x - D.x) + (C.y - D.y) * (C.y - D.y) };
+		cv::Mat matrix = cv::Mat(3, 3, CV_32F, mat_elements);
+		float det = cv::determinant(matrix);
+		bool clock = false;
+		if (((B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x)) > 0)
+			clock = true;
+
+		if (clock && det > 0 || !clock && det < 0)
+		{
+			//only flip if error does NOT get much worse
+			Vec3f col1 = tri_overlap_color(A, B, C);
+			Vec3f col2 = tri_overlap_color(A, B, D);
+
+			float err1 = computeErrorCPU(A, B, C, col1);
+			float err2 = computeErrorCPU(A, B, D, col2);
+
+			col1 = tri_overlap_color(A, D, C);
+			col2 = tri_overlap_color(B, D, C);
+
+			float err3 = computeErrorCPU(A, D, C, col1);
+			float err4 = computeErrorCPU(B, D, C, col2);
+
+			if (err1 + err2 < err3 + err4) 
+			{
+				std::cout << "Would have flipped, but error would have gotten bigger!" << std::endl;
+				continue;
+			}
+
+			changes = true;
+
+			edges[current_edge_index] = std::make_tuple(tri_index, neighbor_index, indexD, indexC);		//flip edge
+
+			int cb = get_edge_index(indexC, indexB);
+			int ca = get_edge_index(indexC, indexA);
+			int db = get_edge_index(indexD, indexB);
+			int da = get_edge_index(indexD, indexA);
+
+			if (da != -1)
+			{
+				//edge DA has the same vertices and the outer neighbor stays the same, but the inner neighbor (previously neighbor_index) is now the other triangle
+				if (std::get<0>(edges[da]) == neighbor_index)
+					edges[da] = std::make_tuple(tri_index, std::get<1>(edges[da]), indexA, indexD);
+				else
+					edges[da] = std::make_tuple(std::get<0>(edges[da]), tri_index, std::get<2>(edges[da]), std::get<3>(edges[da]));
+			}
+			if (cb != -1)
+			{
+				//edge CB has the same vertices and the outer neighbor stays the same, but the inner neighbor (previously tri_index) is now the other triangle
+				if (std::get<0>(edges[cb]) == tri_index)
+					edges[cb] = std::make_tuple(neighbor_index, std::get<1>(edges[cb]), indexB, indexC);
+				else
+					edges[cb] = std::make_tuple(std::get<0>(edges[cb]), neighbor_index, std::get<2>(edges[cb]), std::get<3>(edges[cb]));
+			}
+
+			//adjust triangle at tri_index
+			indices.buffer_content[tI] = indexA;
+			indices.buffer_content[tI + 1] = indexD;
+			indices.buffer_content[tI + 2] = indexC;
+
+			//adjust triangle at neighbor_index
+			indices.buffer_content[nI] = indexB;
+			indices.buffer_content[nI + 1] = indexC;
+			indices.buffer_content[nI + 2] = indexD;
+
+			neighbors[indexC].push_back(neighbor_index);
+			neighbors[indexD].push_back(tri_index);
+
+			std::list<unsigned int> neighborsA, neighborsB;
+			for (auto i : neighbors[indexA])
+			{
+				//A lost the triangle at neighbor_index
+				if (i != neighbor_index)
+					neighborsA.push_back(i);
+			}
+			neighbors[indexA] = neighborsA;
+			for (auto i : neighbors[indexB])
+			{
+				//B lost the triangle at tri_index
+				if (i != tri_index)
+					neighborsB.push_back(i);
+			}
+			neighbors[indexB] = neighborsB;
+
+			//push edges that exist and are not on the stack
+			if (cb != -1 && !on_stack[cb])
 			{
 				edges_stack.push(cb);
 				on_stack[cb] = true;
@@ -953,6 +2049,7 @@ bool Triangulator::eliminate_degenerate_triangles(ID3D11Device* device, ID3D11De
 		{
 			unsigned int indexA = std::get<2>(edges[i]);
 			unsigned int indexB = std::get<3>(edges[i]);
+			
 			float edge_length = length(positions.buffer_content[indexA], positions.buffer_content[indexB]);
 
 			if (edge_length < 5)
@@ -969,7 +2066,9 @@ bool Triangulator::eliminate_degenerate_triangles(ID3D11Device* device, ID3D11De
 
 				unsigned int tri_index = std::get<0>(edges[i]);
 				unsigned int neighbor_index = std::get<1>(edges[i]);
-				std::cout << indices.buffer_content.size() << " " << tri_index * 3 << " " << neighbor_index * 3 << " " << std::endl;
+				
+				//std::cout << indices.buffer_content.size() << " " << tri_index * 3 << " " << neighbor_index * 3 << " " << std::endl;
+				
 				//get the third index (indexC) for the triangle at tri_index
 				unsigned int indexC, indexD;
 				if (indices.buffer_content[tri_index * 3] != indexA && indices.buffer_content[tri_index * 3] != indexB)
@@ -1004,33 +2103,62 @@ bool Triangulator::eliminate_degenerate_triangles(ID3D11Device* device, ID3D11De
 					}
 				}
 
+				unsigned int min = tri_index < neighbor_index ? tri_index : neighbor_index;
+				unsigned int max = tri_index > neighbor_index ? tri_index : neighbor_index;
+				for (int k = max; k < indices.buffer_content.size() / 3 - 1; k++) 
+				{
+					indices.buffer_content[k * 3] = indices.buffer_content[(k + 1) * 3];
+					indices.buffer_content[k * 3 + 1] = indices.buffer_content[(k + 1) * 3 + 1];
+					indices.buffer_content[k * 3 + 2] = indices.buffer_content[(k + 1) * 3 + 2];
+				}
+				indices.buffer_content.resize(indices.buffer_content.size() - 3);
+
+				for (int k = min; k < indices.buffer_content.size() / 3 - 1; k++)
+				{
+					indices.buffer_content[k * 3] = indices.buffer_content[(k + 1) * 3];
+					indices.buffer_content[k * 3 + 1] = indices.buffer_content[(k + 1) * 3 + 1];
+					indices.buffer_content[k * 3 + 2] = indices.buffer_content[(k + 1) * 3 + 2];
+				}
+				indices.buffer_content.resize(indices.buffer_content.size() - 3);
+				nTriangles -= 2;
 				//remove the two collapsing triangles
-				nTriangles -= 1;
+				/*nTriangles -= 1;
+				//std::cout << "tri_index: " << tri_index << std::endl;
 				indices.buffer_content[tri_index * 3] = indices.buffer_content[nTriangles * 3];
 				indices.buffer_content[tri_index * 3 + 1] = indices.buffer_content[nTriangles * 3 + 1];
 				indices.buffer_content[tri_index * 3 + 2] = indices.buffer_content[nTriangles * 3 + 2];
-
+				//std::cout << "tri_index: " << tri_index << " " << indices.buffer_content[tri_index * 3] << " " << indices.buffer_content[tri_index * 3 + 1] << " " << indices.buffer_content[tri_index * 3 + 2] << std::endl;
 				nTriangles -= 1;
+				std::cout << "neighbor_index: " << neighbor_index << " indices size: " << indices.buffer_content.size() << " nTriangles: " << nTriangles << std::endl;
 				indices.buffer_content[neighbor_index * 3] = indices.buffer_content[nTriangles * 3];
 				indices.buffer_content[neighbor_index * 3 + 1] = indices.buffer_content[nTriangles * 3 + 1];
 				indices.buffer_content[neighbor_index * 3 + 2] = indices.buffer_content[nTriangles * 3 + 2];
+				indices.buffer_content.resize(indices.buffer_content.size() - 3);
+				indices.buffer_content.resize(indices.buffer_content.size() - 3);*/
+				//std::cout << "neighbor_index: " << neighbor_index << " " << indices.buffer_content[neighbor_index * 3] << " " << indices.buffer_content[neighbor_index * 3 + 1] << " " << indices.buffer_content[neighbor_index * 3 + 2] << std::endl;
 
 				//remove the vertex
 				for (int j = indexB; j < positions.buffer_content.size() - 1; j++) 
 				{
 					positions.buffer_content[j] = positions.buffer_content[j + 1];
+					is_on_border[j] = is_on_border[j + 1];
 				}
 				
 				positions.buffer_content.resize(positions.buffer_content.size() - 1);
+				is_on_border.resize(positions.buffer_content.size());
 				
 				//adjust the indices
+				std::cout << indexA << " " << indexB << std::endl;
 				for (int j = 0; j < indices.buffer_content.size(); j++) 
 				{
 					if (indices.buffer_content[j] > indexB)
 						indices.buffer_content[j]--;
+					if (indices.buffer_content[j] >= positions.buffer_content.size())
+						std::cout << "j: " << j << " indices: " << indices.buffer_content[j] << " positions.size: " << positions.buffer_content.size() << std::endl;
 				}
-
+				std::cout << "check 1" << std::endl;
 				buildNeighbors(false);
+				std::cout << "check 2" << std::endl;
 				buildEdges();
 				break;
 			}
@@ -1039,20 +2167,218 @@ bool Triangulator::eliminate_degenerate_triangles(ID3D11Device* device, ID3D11De
 
 	if (changes_made) 
 	{	
-		buildNeighborBuffers();
-		positions.cpuToGpu(device, immediateContext);
-		indices.cpuToGpu(device, immediateContext);
-		indices_in_neighbor_list.cpuToGpu(device, immediateContext);
-		neighbor_count.cpuToGpu(device, immediateContext);
-		neighbor_list.cpuToGpu(device, immediateContext);
+		updateDataOnGPU(device, immediateContext);
 		return true;
 	}
 	return false;
 }
 
+int Triangulator::insertion(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	int n_before = indices.buffer_content.size() / 3;
+
+	computeErrors(immediateContext);
+	errors.gpuToCpu(immediateContext);
+
+	float dev = compute_standard_deviation(immediateContext);
+	std::cout << "standard deviation: " << dev << std::endl;
+	
+	std::vector<bool> marked;
+	marked.resize(indices.buffer_content.size() / 3, false);
+
+	positions.gpuToCpu(immediateContext);
+	for (int i = 0; i < n_before; i++)
+	{
+		//if (i % 10 == 0)
+		if (errors.buffer_content[i] > dev && !marked[i])
+		{
+			std::cout << "error: " << errors.buffer_content[i] << std::endl;
+			//insert_vertex_center(i, d3d->getDevice(), immediateContext);
+			insert_triangle_into_triangle(i, marked, d3d->getDevice(), immediateContext);
+			std::cout << "vertex inserted" << std::endl;
+		}
+	}
+
+	int n_after = indices.buffer_content.size() / 3;
+	updateDataOnGPU(device, immediateContext);
+	std::cout << "now there are " << nTriangles << " triangles" << std::endl;
+	return n_after - n_before;
+}
+
+int Triangulator::insertion2(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	int n_before = indices.buffer_content.size() / 3;
+
+	computePixelVariance(immediateContext);
+	pixel_variance.gpuToCpu(immediateContext);
+
+	float dev = compute_standard_deviation2(immediateContext);
+	std::cout << "standard deviation: " << dev << std::endl;
+
+	std::vector<bool> marked;
+	marked.resize(indices.buffer_content.size() / 3, false);
+
+	positions.gpuToCpu(immediateContext);
+	for (int i = 0; i < n_before; i++)
+	{
+		//if (i % 10 == 0)
+		if ((pixel_variance.buffer_content[i].r + pixel_variance.buffer_content[i].g + pixel_variance.buffer_content[i].b) / 3.0f > dev && !marked[i])
+		{
+			std::cout << "error: " << errors.buffer_content[i] << std::endl;
+			//insert_vertex_center(i, d3d->getDevice(), immediateContext);
+			insert_triangle_into_triangle(i, marked, d3d->getDevice(), immediateContext);
+			std::cout << "vertex inserted" << std::endl;
+		}
+	}
+
+	int n_after = indices.buffer_content.size() / 3;
+	updateDataOnGPU(device, immediateContext);
+	std::cout << "now there are " << nTriangles << " triangles" << std::endl;
+	return n_after - n_before;
+}
+
+int Triangulator::insertionV3(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	int n_before = indices.buffer_content.size() / 3;
+	static float threshold = 1.0f;
+	//errorsPS.gpuToCpu(immediateContext); //changed here
+
+	//std::vector<int> trianglesToInsertInto;
+	std::vector<std::pair<int, float>> trianglesToInsertInto;
+	
+	for (unsigned int i = 0; i < errorsPS.buffer_content.size(); i++) 
+	{
+		Vec4u err = errorsPS.buffer_content[i];
+		std::cout << "errorPS: " << err.r << " " << err.g << " " << err.b << std::endl;
+		Vec3f errf = { err.r / (255.0f * 255.0f), err.g / (255.0f * 255.0f), err.b / (255.0f * 255.0f) };
+		float errS = (errf.r + errf.g + errf.b) / 3.0f;
+		errS /= image->getWidth() * image->getHeight();
+		errS = (float)(sqrt(errS) * 255.0f);
+		std::cout << errS << std::endl;
+		if (errS > threshold)									//changed here (before: 3.0f), changed again (before: 1.0f)
+			trianglesToInsertInto.push_back(std::make_pair(i, errS));
+			//trianglesToInsertInto.push_back(i);
+	}
+
+	if (trianglesToInsertInto.size() == 0)
+		threshold = threshold - 0.3f < 0 ? 0.1f : threshold - 0.3f;
+
+	std::sort(trianglesToInsertInto.begin(), trianglesToInsertInto.end(), sort_pred());
+
+	for (int i = 0; i < trianglesToInsertInto.size(); i++) 
+	{
+		//unsigned int tri = trianglesToInsertInto[i];
+		unsigned int tri = trianglesToInsertInto[i].first;
+		if (nTriangles < triangleGoal)
+			insert_vertex_center(tri, device, immediateContext);
+	}
+
+	int n_after = indices.buffer_content.size() / 3;
+	//errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 });	//changed here (commented out)
+	updateDataOnGPU(device, immediateContext);			//changed here (commented out)
+
+	return n_after - n_before;
+}
+
+float Triangulator::computeImageErrorPS(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	//errorsPS.gpuToCpu(immediateContext);
+
+	int pixels = 0;
+	float err = 0;
+	float total = 0;
+	for (int i = 0; i < errorsPS.buffer_content.size(); i++) 
+	{
+		float denom = 255.0f * 255.0f;
+		float errR = errorsPS.buffer_content[i].r / denom;
+		float errG = errorsPS.buffer_content[i].g / denom;
+		float errB = errorsPS.buffer_content[i].b / denom;
+		err = (errR + errG + errB) / 3.0f;
+		//err *= errorsPS.buffer_content[i].a / ((float)image->getWidth() * (float)image->getHeight());
+		err /= (float)image->getWidth() * (float)image->getHeight();
+		err = (float)(sqrt(err) * 255.0f);
+
+		total += err;
+		pixels += errorsPS.buffer_content[i].a;
+	}
+	//std::cout << "pixel count: " << pixels << std::endl;
+	//errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 });
+	//errorsPS.buffer_content.clear();
+	//errorsPS.buffer_content.resize(indices.buffer_content.size() / 3, { 0, 0, 0, 0 });
+	//errorsPS.cpuToGpu(device, immediateContext);
+
+	return total;
+}
+
+float Triangulator::getTotalError(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	errorCS.gpuToCpu(immediateContext);
+	int pixels = 0;
+	float err = 0;
+	float total = 0;
+	for (int i = 0; i < errorCS.buffer_content.size(); i++)
+	{
+		float denom = 255.0f * 255.0f;
+		float errR = errorCS.buffer_content[i].r / denom;
+		float errG = errorCS.buffer_content[i].g / denom;
+		float errB = errorCS.buffer_content[i].b / denom;
+		err = (errR + errG + errB) / 3.0f;
+		//err *= errorsPS.buffer_content[i].a / ((float)image->getWidth() * (float)image->getHeight());
+		err /= (float)image->getWidth() * (float)image->getHeight();
+		err = (float)(sqrt(err) * 255.0f);
+
+		total += err;
+		pixels += errorCS.buffer_content[i].a;
+	}
+	//std::cout << "pixel count: " << pixels << std::endl;
+
+	errorCS.clearUAV(immediateContext, { 0, 0, 0, 0 });
+
+	return total;
+}
+
+void Triangulator::updateDataOnGPU(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	buildNeighborBuffers();
+	
+	positions.cpuToGpu(device, immediateContext);
+	indices.cpuToGpu(device, immediateContext);
+	indices_in_neighbor_list.cpuToGpu(device, immediateContext);
+	neighbor_count.cpuToGpu(device, immediateContext);
+	neighbor_list.cpuToGpu(device, immediateContext);
+
+	colors.buffer_content.resize(indices.buffer_content.size() / 3);
+	colors.cpuToGpu(device, immediateContext);
+
+	gradientCoefficients.buffer_content.resize(indices.buffer_content.size() / 3);
+	gradientCoefficients.cpuToGpu(device, immediateContext);
+
+	gradients_rtt.buffer_content.resize(indices.buffer_content.size() / 3);
+	gradients_rtt.cpuToGpu(device, immediateContext);
+
+	colors_fin_diff.buffer_content.resize(indices.buffer_content.size() / 3);
+	colors_fin_diff.cpuToGpu(device, immediateContext);
+
+	errors_fin_diff.buffer_content.resize(indices.buffer_content.size() / 3);
+	errors_fin_diff.cpuToGpu(device, immediateContext);
+
+	errors.buffer_content.resize(indices.buffer_content.size() / 3);
+	errors.cpuToGpu(device, immediateContext);
+
+	errorsPS.buffer_content.resize(indices.buffer_content.size() / 3);
+	errorsPS.cpuToGpu(device, immediateContext);
+
+	pixel_variance.buffer_content.resize(indices.buffer_content.size() / 3);
+	pixel_variance.cpuToGpu(device, immediateContext);
+}
+
 void Triangulator::createRegularGrid()
 {
-	const int GRID_SPACING_CONSTANT = (int)round(sqrt(nTriangles / 2));
+	int startingTriangleCount = 200;
+	if (nTriangles < startingTriangleCount)
+		startingTriangleCount = nTriangles;
+
+	const int GRID_SPACING_CONSTANT = (int)round(sqrt(startingTriangleCount / 2));
 
 	float x_spacing = (float)(image->getWidth()) / GRID_SPACING_CONSTANT;
 	float y_spacing = (float)(image->getHeight()) / GRID_SPACING_CONSTANT;
@@ -1087,7 +2413,8 @@ void Triangulator::createRegularGrid()
 		}
 	}
 
-	nTriangles = 2 * GRID_SPACING_CONSTANT * GRID_SPACING_CONSTANT;
+	//nTriangles = 2 * GRID_SPACING_CONSTANT * GRID_SPACING_CONSTANT;
+	nTriangles = indices.buffer_content.size() / 3;
 	buildNeighbors(true);
 	buildEdges();
 }
@@ -1155,7 +2482,10 @@ void Triangulator::buildEdges()
 		unsigned int indA = indices.buffer_content[tI];
 		unsigned int indB = indices.buffer_content[tI + 1];
 		unsigned int indC = indices.buffer_content[tI + 2];
-
+		if (indA == indB || indA == indC || indB == indC) 
+		{
+			std::cout << indA << " " << indB << " " << indC << " " << tri_index << std::endl;
+		}
 #if 0
 		if (get_edge_index(indA, indB) == -1)
 		{
@@ -1269,10 +2599,13 @@ void Triangulator::initializeTriangleGradients()
 	for (int i = 0; i < nTriangles; i++)
 	{
 		gradients_rtt.buffer_content.push_back({ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f });
-		//gradients_fin_diff.buffer_content.push_back({ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f });
-		Vec144f c = { {0} };
-		gradients_fin_diff.buffer_content.push_back(c);
+		//colors_fin_diff.buffer_content.push_back({ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f });
+		//colors_fin_diff.buffer_content.push_back(c);
+		//errors_fin_diff.buffer_content.push_back(c);
 	}
+	Vec36f c = { {0} };
+	colors_fin_diff.buffer_content.resize(nTriangles, c);
+	errors_fin_diff.buffer_content.resize(nTriangles, c);
 }
 
 int Triangulator::get_edge_index(unsigned int v1, unsigned int v2)
@@ -1325,6 +2658,199 @@ std::vector<int> Triangulator::get_edges_with_vertex(unsigned int v)
 	return _edges;
 }
 
+void Triangulator::writeErrorToFile(std::string file, int iteration, float error)
+{
+	std::ofstream fs;
+	fs.open(file, std::ios::out | std::ios::app);
+
+	//fs << "Iteration;Error;\n";
+	//for (int i = 0; i < errorsPS.buffer_content.size(); i++) 
+	//{
+	fs << iteration << ";" << error << ";\n";
+	//}
+
+	fs.close();
+}
+
+float Triangulator::dot(const Vec2f& v, const Vec2f& w)
+{
+	return v.x * w.x + v.y * w.y;
+}
+
+Vec2f Triangulator::normal_in(const Vec2f& v, const Vec2f& w)
+{
+	Vec2f n = { v.y, -v.x };
+	if (dot(n, w) <= 0)
+		n = { -n.x, -n.y };
+	return n;
+}
+
+bool Triangulator::point_inside_triangle(const Vec2f& p, const Vec2f& A, const Vec2f& B, const Vec2f& C)
+{
+	Vec2f ab = { B.x - A.x, B.y - A.y };
+	Vec2f ac = { C.x - A.x, C.y - A.y };
+	Vec2f bc = { C.x - B.x, C.y - B.y };
+
+	if (dot(normal_in(ab, ac), { p.x - A.x, p.y - A.y }) <= 0 || dot(normal_in(ac, ab), { p.x - A.x, p.y - A.y }) <= 0 || dot(normal_in(bc, { -ab.x, -ab.y }), { p.x - B.x, p.y - B.y }) <= 0)
+		return false;
+	return true;
+}
+
+Vec3f Triangulator::tri_overlap_color(const Vec2f& A, const Vec2f& B, const Vec2f& C)
+{
+	float triangle_area = tri_area(A, B, C);
+
+	float t = A.x < B.x ? A.x : B.x;
+	float min_x = t < C.x ? t : C.x;
+	t = A.x > B.x ? A.x : B.x;
+	float max_x = t > C.x ? t : C.x;
+
+	t = A.y < B.y ? A.y : B.y;
+	float min_y = t < C.y ? t : C.y;
+	t = A.y > B.y ? A.y : B.y;
+	float max_y = t > C.y ? t : C.y;
+
+	int pixel_right_x = floor(min_x);
+	int pixel_bottom_y = floor(min_y);
+	int pixel_left_x = ceil(max_x);
+	int pixel_top_y = ceil(max_y);
+
+	Vec3f color = { 0, 0, 0 };
+	for (int i = pixel_right_x; i < pixel_left_x; i++)
+	{
+		for (int j = pixel_bottom_y; j < pixel_top_y; j++)
+		{
+			std::vector<Vec2f> polygon;
+
+			float area = 0.0f;
+			bool whole_pixel = true;
+
+			Vec2f x1y1 = { i, j };
+			Vec2f x2y1 = { i + 1, j };
+			Vec2f x1y2 = { i, j + 1 };
+			Vec2f x2y2 = { i + 1, j + 1 };
+
+			if (point_inside_triangle(x1y1, A, B, C))
+			{
+				polygon.push_back(x1y1); 
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x2y1, A, B, C))
+			{
+				polygon.push_back(x2y1);
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x1y2, A, B, C))
+			{
+				polygon.push_back(x1y2);
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x2y2, A, B, C))
+			{
+				polygon.push_back(x2y2);
+			}
+			else
+				whole_pixel = false;
+
+			if (whole_pixel)
+			{
+				area = 1.0f;
+			}
+			else 
+			{
+				//TODO
+			}
+			float fraction = area / triangle_area;
+
+			Vec3f pixel_color = image->at(i, j);
+			color = { color.r + fraction * pixel_color.r, color.g + fraction * pixel_color.g , color.b + fraction * pixel_color.b };
+		}
+	}
+	return color;
+}
+
+float Triangulator::computeErrorCPU(const Vec2f& A, const Vec2f& B, const Vec2f& C, const Vec3f& color)
+{
+	float triangle_area = tri_area(A, B, C);
+
+	float t = A.x < B.x ? A.x : B.x;
+	float min_x = t < C.x ? t : C.x;
+	t = A.x > B.x ? A.x : B.x;
+	float max_x = t > C.x ? t : C.x;
+
+	t = A.y < B.y ? A.y : B.y;
+	float min_y = t < C.y ? t : C.y;
+	t = A.y > B.y ? A.y : B.y;
+	float max_y = t > C.y ? t : C.y;
+
+	int pixel_right_x = floor(min_x);
+	int pixel_bottom_y = floor(min_y);
+	int pixel_left_x = ceil(max_x);
+	int pixel_top_y = ceil(max_y);
+
+	float error = 0;
+	for (int i = pixel_right_x; i < pixel_left_x; i++)
+	{
+		for (int j = pixel_bottom_y; j < pixel_top_y; j++)
+		{
+			std::vector<Vec2f> polygon;
+
+			float area = 0.0f;
+			bool whole_pixel = true;
+
+			Vec2f x1y1 = { i, j };
+			Vec2f x2y1 = { i + 1, j };
+			Vec2f x1y2 = { i, j + 1 };
+			Vec2f x2y2 = { i + 1, j + 1 };
+
+			if (point_inside_triangle(x1y1, A, B, C))
+			{
+				polygon.push_back(x1y1);
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x2y1, A, B, C))
+			{
+				polygon.push_back(x2y1);
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x1y2, A, B, C))
+			{
+				polygon.push_back(x1y2);
+			}
+			else
+				whole_pixel = false;
+			if (point_inside_triangle(x2y2, A, B, C))
+			{
+				polygon.push_back(x2y2);
+			}
+			else
+				whole_pixel = false;
+
+			if (whole_pixel)
+			{
+				area = 1.0f;
+			}
+			else
+			{
+				//TODO
+			}
+			float fraction = area / triangle_area;
+
+			Vec3f pixel_color = image->at(i, j);
+			float errR = fraction * (pixel_color.r - color.r) * (pixel_color.r - color.r);
+			float errG = fraction * (pixel_color.g - color.g) * (pixel_color.g - color.g);
+			float errB = fraction * (pixel_color.b - color.b) * (pixel_color.b - color.b);
+			error += errR + errG + errB;
+		}
+	}
+	return error;
+}
+
 void Triangulator::createTestVertices()
 {
 	positions.buffer_content.push_back({0.0f, 0.5f});
@@ -1342,7 +2868,10 @@ void Triangulator::setRandomColors()
 	{
 		colors.buffer_content.push_back({ ((float)(rand() % 255)) / 255.0f, ((float)(rand() % 255)) / 255.0f , ((float)(rand() % 255)) / 255.0f });
 		gradientCoefficients.buffer_content.push_back({ 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f });
+		errors.buffer_content.push_back(0.0f);
 	}
+	errorsPS.buffer_content.resize(nTriangles, { 0, 0, 0, 0 });
+	pixel_variance.buffer_content.resize(nTriangles, {0, 0, 0});
 }
 
 void Triangulator::testing(ID3D11DeviceContext* immediateContext)
@@ -1401,9 +2930,13 @@ void Triangulator::testing(ID3D11DeviceContext* immediateContext)
 
 	nTriangles = 8;*/
 	nTriangles = 1;
-	positions.buffer_content.push_back({800.0f/18.0f * 11.0f, 600.0f / 18.0f * 2.0f});
+	/*positions.buffer_content.push_back({800.0f / 18.0f * 11.0f, 600.0f / 18.0f * 2.0f});
 	positions.buffer_content.push_back({800.0f/18.0f * 12.0f, 600.0f / 18.0f * 3.0f});
-	positions.buffer_content.push_back({800.0f/18.0f * 11.0f, 600.0f / 18.0f * 3.0f});
+	positions.buffer_content.push_back({800.0f/18.0f * 11.0f, 600.0f / 18.0f * 3.0f});*/
+
+	positions.buffer_content.push_back({1280.0f/18.0f, 720.0f / 18.0f * 11.0f});
+	positions.buffer_content.push_back({0.0f, 720.0f / 18.0f * 10.0f});
+	positions.buffer_content.push_back({(1280.0f/18.0f * 2.0f) / 3.0f, (720.0f / 18.0f * 10.0f * 2.0f + 720.0f / 18.0f * 11.0f) / 3.0f});
 	
 	//positions.buffer_content.push_back({600.0f, 200.0f});
 	//positions.buffer_content.push_back({575.0f, 280.0f});

@@ -59,5 +59,11 @@
     <FxCompile Include="shader\ComputeGradient_bipct.hlsl" />
     <FxCompile Include="shader\FiniteDifferences.hlsl" />
     <FxCompile Include="shader\UpdatePositionsFinDiff.hlsl" />
+    <FxCompile Include="shader\ComputeError.hlsl" />
+    <FxCompile Include="shader\ComputeErrorFinDiff.hlsl" />
+    <FxCompile Include="shader\ComputePixelVariance.hlsl" />
+    <FxCompile Include="shader\PSWithError.hlsl" />
+    <FxCompile Include="shader\PSLinGradWithError.hlsl" />
+    <FxCompile Include="shader\ComputeImageError.hlsl" />
   </ItemGroup>
 </Project>

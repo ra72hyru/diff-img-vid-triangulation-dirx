@@ -1,4 +1,6 @@
 #include "D3D.h"
+#include <string>
+#include <sstream>
 
 D3D::D3D(HWND hWnd) : phWnd(hWnd), pFactory(NULL),
 									pDevice(NULL), 
@@ -6,6 +8,7 @@ D3D::D3D(HWND hWnd) : phWnd(hWnd), pFactory(NULL),
 									pSwapChain(NULL),
 									pRenderTargetView_Texture(NULL),
 									pRenderTargetView_Backbuffer(NULL),
+									pSRV_RenderTargetView(NULL),
 									pDepthStencilView_Texture(NULL),
 									pDepthStencilView_Backbuffer(NULL),
 									pShaderResourceView_Backbuffer(NULL),
@@ -82,6 +85,7 @@ bool D3D::createSwapChain()
 	sd.BufferDesc.Width = width;
 	sd.BufferDesc.Height = height;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	//sd.BufferDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	sd.BufferDesc.RefreshRate.Numerator = 0;
 	sd.BufferDesc.RefreshRate.Denominator = 0;
 	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
@@ -89,7 +93,7 @@ bool D3D::createSwapChain()
 
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
 	sd.BufferCount = 1;
 
 	sd.OutputWindow = phWnd;
@@ -146,6 +150,16 @@ bool D3D::createSwapChain()
 	ID3D11RenderTargetView* rt_views[] = { pRenderTargetView_Backbuffer };
 	pImmediateContext->OMSetRenderTargets(1, rt_views, pDepthStencilView_Backbuffer);
 
+	D3D11_SHADER_RESOURCE_VIEW_DESC srv_rtv_desc;
+	ZeroMemory(&srv_rtv_desc, sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
+	srv_rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	srv_rtv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	srv_rtv_desc.Texture2D.MostDetailedMip = 0;
+	srv_rtv_desc.Texture2D.MipLevels = 1;
+
+	hr = pDevice->CreateShaderResourceView(pRenderTargetView_Texture, &srv_rtv_desc, &pSRV_RenderTargetView);
+	if (FAILED(hr)) return false;
+
 
 	mViewport.TopLeftX = 0;
 	mViewport.TopLeftY = 0;
@@ -174,7 +188,57 @@ void D3D::releaseSwapChain()
 	SAFE_RELEASE(pDepthStencilView_Texture);
 	SAFE_RELEASE(pDepthStencilView_Backbuffer);
 	SAFE_RELEASE(pShaderResourceView_Backbuffer);
+	SAFE_RELEASE(pSRV_RenderTargetView);
 	SAFE_RELEASE(pSwapChain);
+}
+
+void D3D::saveImageFromBackBuffer()
+{
+	//taken from https://github.com/tobguent/image-triangulation/blob/master/demo/D3D.cpp
+	std::wstring path = L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
+	std::string spath = "E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
+	int i = 0;
+	bool writeable = false;
+
+	while (!writeable) 
+	{
+		std::wstringstream ss;
+		std::stringstream sss;
+		if (i < 10) 
+		{
+			ss << path << L"_000" << i << L".png";
+			sss << spath << "_000" << i << ".png";
+		}
+		else if (i < 100) 
+		{
+			ss << path << L"_00" << i << L".png";
+			sss << spath << "_00" << i << ".png";
+		}
+		else if (i < 1000) 
+		{
+			ss << path << L"_0" << i << L".png";
+			sss << spath << "_0" << i << ".png";
+		}
+		else 
+		{
+			ss << path << L"_" << i << L".png";
+			sss << spath << "_" << i << ".png";
+		}
+
+		struct _stat stat;
+		if (_stat(sss.str().c_str(), &stat) < 0)
+		{
+			writeable = true;
+			path = ss.str();
+			spath = sss.str();
+		}
+		else
+			i++;
+	}
+
+	//HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatJpeg, L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\test.jpg");
+	HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatJpeg, path.c_str());
+	
 }
 
 void D3D::EndFrame()

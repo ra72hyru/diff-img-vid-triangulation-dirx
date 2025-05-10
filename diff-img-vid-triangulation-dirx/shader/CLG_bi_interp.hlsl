@@ -254,6 +254,9 @@ float3 integrate(float3 K, float3 Kx, float3 Ky, float3 Kxy, in int size, inout 
     float2 A = ordered_plgn[0];
     for (int o = 0; o < ordered_size - 2; o++)
     {
+        if (triangle_area(ordered_plgn[0], ordered_plgn[o + 1], ordered_plgn[o + 2]) < 0.2)
+            continue;
+        
         float2 C = ordered_plgn[o + 1];
         float2 B = ordered_plgn[o + 2];
         
