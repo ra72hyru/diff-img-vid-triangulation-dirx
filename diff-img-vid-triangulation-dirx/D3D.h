@@ -22,7 +22,7 @@ class D3D
 		void releaseDevice();
 		void releaseSwapChain();
 
-		void saveImageFromBackBuffer();
+		void saveImageFromBackBuffer(std::string image_name);
 
 		ID3D11Device* getDevice() { return pDevice; };
 		ID3D11DeviceContext* getImmediateContext() { return pImmediateContext; };

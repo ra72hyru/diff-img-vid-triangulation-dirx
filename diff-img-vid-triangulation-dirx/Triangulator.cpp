@@ -47,10 +47,10 @@ Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles, std::s
 {
 	VSInput.buffer_content.projMatrix = image->getProjectionMatrix();
 
-	CSInput.buffer_content.stepSize = 0.4f;
+	CSInput.buffer_content.stepSize = 1;//0.4f;
 	CSInput.buffer_content.width = image->getWidth();
 	CSInput.buffer_content.height = image->getHeight();
-	CSInput.buffer_content.trustRegion = 1.0f;
+	CSInput.buffer_content.trustRegion = 0.2f;//1.0f;
 	CSInput.buffer_content.damping = 0.001f;
 
 	CSfin_diff_Input.buffer_content.eps = 1;
@@ -75,9 +75,9 @@ Triangulator::Triangulator(ImageView* image, D3D* pD3D, int numTriangles, std::s
 	errorCS.buffer_content.resize(ecsX * ecsY, {0, 0, 0, 0});
 
 	//546, 51
-	std::cout << positions.buffer_content[indices.buffer_content[0 * 3]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3]].y << std::endl;
-	std::cout << positions.buffer_content[indices.buffer_content[0 * 3 + 1]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3 + 1]].y << std::endl;
-	std::cout << positions.buffer_content[indices.buffer_content[0 * 3 + 2]].x << " " << positions.buffer_content[indices.buffer_content[0 * 3 + 2]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[11 * 3]].x << " " << positions.buffer_content[indices.buffer_content[11 * 3]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[11 * 3 + 1]].x << " " << positions.buffer_content[indices.buffer_content[11 * 3 + 1]].y << std::endl;
+	std::cout << positions.buffer_content[indices.buffer_content[11 * 3 + 2]].x << " " << positions.buffer_content[indices.buffer_content[11 * 3 + 2]].y << std::endl;
 	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].x - positions.buffer_content[indices.buffer_content[51 * 3 ]].x << std::endl;
 	std::cout << positions.buffer_content[indices.buffer_content[51 * 3 + 2]].y - positions.buffer_content[indices.buffer_content[51 * 3 ]].y << std::endl;
 	
@@ -237,6 +237,13 @@ bool Triangulator::create(ID3D11Device* device)
 	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pComputeImageError);
 	if (FAILED(hr)) return false;
 
+	//read and create ComputeGradient_bipct compute shader
+	hr = D3DReadFileToBlob(L".\\shader\\ComputeGradient_bipct.cso", &pBlob_cs);
+	if (FAILED(hr)) return false;
+
+	hr = device->CreateComputeShader(pBlob_cs->GetBufferPointer(), pBlob_cs->GetBufferSize(), NULL, &pCG_bipct);
+	if (FAILED(hr)) return false;
+
 
 	//create input layout
 	hr = device->CreateInputLayout(inputLayout_desc, 1, pBlob_vs->GetBufferPointer(), pBlob_vs->GetBufferSize(), &pInputLayout);
@@ -323,6 +330,7 @@ void Triangulator::release()
 	SAFE_RELEASE(pComputeErrors_fin_diff);
 	SAFE_RELEASE(pComputeErrors);
 	SAFE_RELEASE(pComputeImageError);
+	SAFE_RELEASE(pCG_bipct);
 	SAFE_RELEASE(pInputLayout);
 }
 
@@ -413,7 +421,7 @@ void Triangulator::insert_vertex_center(unsigned int tri_index, ID3D11Device* de
 
 void Triangulator::insert_triangle_into_triangle(unsigned int tri_index, std::vector<bool>& marked, ID3D11Device* device, ID3D11DeviceContext* immediateContext)
 {
-	positions.gpuToCpu(immediateContext);
+	//positions.gpuToCpu(immediateContext);
 
 	unsigned int indexA = indices.buffer_content[tri_index * 3];
 	unsigned int indexB = indices.buffer_content[tri_index * 3 + 1];
@@ -427,8 +435,8 @@ void Triangulator::insert_triangle_into_triangle(unsigned int tri_index, std::ve
 	Vec2f m_bc = { (B.x + C.x) / 2.0f, (B.y + C.y) / 2.0f };
 	Vec2f m_ca = { (C.x + A.x) / 2.0f, (C.y + A.y) / 2.0f };
 
-	if (tri_area(m_ab, m_bc, m_ca) <= 2)
-		return;
+	//if (tri_area(m_ab, m_bc, m_ca) <= 2)
+		//return;
 
 	unsigned int index_mAB = positions.buffer_content.size();
 	positions.buffer_content.push_back(m_ab);
@@ -635,7 +643,7 @@ void Triangulator::insert_triangle_into_triangle(unsigned int tri_index, std::ve
 	//TODO
 	//buildNeighbors(false);
 	buildEdges();
-	updateDataOnGPU(device, immediateContext);
+	//updateDataOnGPU(device, immediateContext);
 }
 
 void Triangulator::draw(ID3D11DeviceContext* immediateContext, RenderMode mode)
@@ -846,7 +854,7 @@ void Triangulator::draw_fin_diff(ID3D11DeviceContext* immediateContext, RenderMo
 
 void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode)
 {
-	std::string path = "E:\\Uni\\Masterarbeit\\csv\\" + filename + ".csv";
+	//std::string path = "E:\\Uni\\Masterarbeit\\csv\\" + filename + ".csv";
 	static int iteration = 1;
 	
 	/*if (iteration > 1) 
@@ -856,35 +864,42 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 		std::cout << "The error computed by the compute shader is: " << err << std::endl;
 	}*/
 
-	//if ((iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
 	//if (triangleGoal > nTriangles && delaunayUntilNthIteration > iteration)
-	//{
-	//	delaunay(d3d->getDevice(), immediateContext);
-	//	//delaunay_error_conscious(d3d->getDevice(), immediateContext);
-	//	std::cout << "delaunay done" << std::endl;
-	//	std::flush(std::cout);
-	//}
+	if (iteration == -120)// && (iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
+	{
+		delaunay(d3d->getDevice(), immediateContext);
+		//delaunay_error_conscious(d3d->getDevice(), immediateContext);
+		std::cout << "delaunay done" << std::endl;
+		std::flush(std::cout);
+	}
 
 	if (mode == en_constant)
 	{
-		if (iteration > 1) 
+		if (iteration > 1)
 		{
 			errorsPS.gpuToCpu(immediateContext); //changed here (added)
-			float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+			/*float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
 			computeErrors(immediateContext);
 			errors.gpuToCpu(immediateContext);
 			float e = (errorsPS.buffer_content[10].r + errorsPS.buffer_content[10].g + errorsPS.buffer_content[10].b) / 3.0f;
 			e = sqrt(0.5f * (e / errorsPS.buffer_content[10].a));
 			std::cout << "errorsPS: " << e;
 			float ee = sqrt(errors.buffer_content[10] * 0.5f * 255 * 255);
-			std::cout << "error: " << ee;
+			std::cout << "error: " << ee;*/
 
 			//std::cout << "error is: " << err << std::endl;
 			//writeErrorToFile(path, iteration - 1, err);
 		}
 		if (iteration < 1210)
 		{
-			computeGradients_rtt(immediateContext);
+			std::ofstream fs;
+			//fs.open("E:\\Uni\\Masterarbeit\\csv\\" + filename + "_rtt_200.txt", std::ios::out | std::ios::app);
+			//auto start = std::chrono::high_resolution_clock::now();
+			//computeGradients_rtt(immediateContext);
+			//auto end = std::chrono::high_resolution_clock::now();
+			//fs << indices.buffer_content.size() / 3 << ";" << (std::chrono::duration_cast<std::chrono::microseconds>(end - start)).count() << "\n";
+			//fs.close();
+			computeGradients_bipct(immediateContext);
 			std::cout << "gradients computed" << std::endl;
 			updatePositions(immediateContext);
 			std::cout << "positions updated" << std::endl;
@@ -892,8 +907,242 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 		if (iteration > 2 && triangleGoal > nTriangles) 
 		{
 			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
-			std::cout << triangleGoal << " " << nTriangles << std::endl;
+			//std::cout << triangleGoal << " " << nTriangles << std::endl;
 			insertionV3(d3d->getDevice(), immediateContext);
+			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
+
+			if (delaunayUntilNthIteration > iteration)
+			{
+				delaunay(d3d->getDevice(), immediateContext);
+				std::cout << "delaunay done" << std::endl;
+				std::flush(std::cout);
+			}
+		}
+
+		if (triangleGoal > nTriangles && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		{
+			std::cout << "eliminated at least one triangle" << std::endl;
+			//Sleep(1000);
+			std::cout << "sleeping end" << std::endl;
+			//delaunay(d3d->getDevice(), immediateContext);
+		}
+
+		computeConstantColors(immediateContext);
+
+		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
+
+		render(immediateContext, mode);
+		//d3d->saveImageFromBackBuffer(filename);
+	}
+	else if (mode == en_linear)
+	{
+		if (iteration > 1)
+		{
+			errorsPS.gpuToCpu(immediateContext); //changed here (added)
+		}
+		if (iteration < 1210)
+		{
+			std::ofstream fs;
+			fs.open("E:\\Uni\\Masterarbeit\\csv\\" + filename + "_rtt_speed_test.txt", std::ios::out | std::ios::app);
+			auto start = std::chrono::high_resolution_clock::now();
+			computeGradients_cplg(immediateContext);
+			auto end = std::chrono::high_resolution_clock::now();
+			fs << (std::chrono::duration_cast<std::chrono::microseconds>(end - start)).count() << "\n";
+			fs.close();
+			std::cout << "gradients computed" << std::endl;
+			updatePositions(immediateContext);
+			std::cout << "positions updated" << std::endl;
+		}
+		if (iteration > 2 && triangleGoal > nTriangles)
+		{
+			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
+			//std::cout << triangleGoal << " " << nTriangles << std::endl;
+			insertionV3(d3d->getDevice(), immediateContext);
+			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
+
+			if (delaunayUntilNthIteration > iteration)
+			{
+				delaunay(d3d->getDevice(), immediateContext);
+				std::cout << "delaunay done" << std::endl;
+				std::flush(std::cout);
+			}
+		}
+
+		if (triangleGoal > nTriangles && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		{
+			std::cout << "eliminated at least one triangle" << std::endl;
+			//Sleep(1000);
+			std::cout << "sleeping end" << std::endl;
+			//delaunay(d3d->getDevice(), immediateContext);
+		}
+		computeLinearGradients(immediateContext);
+		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
+		render(immediateContext, mode);
+		d3d->saveImageFromBackBuffer(filename);
+	}
+	
+	if (computeErrorInPS)
+	{
+		//float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+		//std::cout << "The image error is: " << err << std::endl;
+	}
+	std::cout << iteration << " cycle(s) done" << std::endl;
+	std::cout << nTriangles << " triangles are drawn" << std::endl;
+	iteration++;
+}
+
+void Triangulator::drawV2_fin_diff(ID3D11DeviceContext* immediateContext, RenderMode mode)
+{
+	static int iteration = 1;
+
+	/*if (iteration > 1)
+	{
+		computeImageErrorCS(immediateContext);
+		float err = getTotalError(d3d->getDevice(), immediateContext);
+		std::cout << "The error computed by the compute shader is: " << err << std::endl;
+	}*/
+
+	//if (triangleGoal > nTriangles && delaunayUntilNthIteration > iteration)
+	if (0 && (iteration % (delaunayEveryNthIteration * 5)) == 0 && delaunayUntilNthIteration * 5 > iteration)
+	{
+		delaunay(d3d->getDevice(), immediateContext);
+		//delaunay_error_conscious(d3d->getDevice(), immediateContext);
+		std::cout << "delaunay done" << std::endl;
+		std::flush(std::cout);
+	}
+
+	if (mode == en_constant)
+	{
+		if (iteration % 5 == 0 && iteration > 1)
+		{
+			errorsPS.gpuToCpu(immediateContext); //changed here (added)
+			/*float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+			computeErrors(immediateContext);
+			errors.gpuToCpu(immediateContext);
+			float e = (errorsPS.buffer_content[10].r + errorsPS.buffer_content[10].g + errorsPS.buffer_content[10].b) / 3.0f;
+			e = sqrt(0.5f * (e / errorsPS.buffer_content[10].a));
+			std::cout << "errorsPS: " << e;
+			float ee = sqrt(errors.buffer_content[10] * 0.5f * 255 * 255);
+			std::cout << "error: " << ee;*/
+
+			//std::cout << "error is: " << err << std::endl;
+			//writeErrorToFile(path, iteration - 1, err);
+		}
+		if (iteration < 12100)
+		{
+			float plmi = (iteration % 2 == 0) ? -1.0f : 1.0f;
+			if (iteration % 5 == 1 || iteration % 5 == 2)
+			{
+				//finite_differences(plmi, immediateContext);
+				//std::cout << "colors " << plmi << " computed" << std::endl;
+				color_fd(plmi, {plmi, 1, 0, 0, 0, 0, 0}, immediateContext);
+				color_fd(plmi, {plmi, 0, 1, 0, 0, 0, 0}, immediateContext);
+				color_fd(plmi, {plmi, 0, 0, 1, 0, 0, 0}, immediateContext);
+				color_fd(plmi, {plmi, 0, 0, 0, 1, 0, 0}, immediateContext);
+				color_fd(plmi, {plmi, 0, 0, 0, 0, 1, 0}, immediateContext);
+				color_fd(plmi, {plmi, 0, 0, 0, 0, 0, 1}, immediateContext);
+			}
+			else if (iteration % 5 == 3 || iteration % 5 == 4)
+			{
+				//computeErrors_fin_diff(plmi, immediateContext);
+				//std::cout << "errors " << plmi << " computed" << std::endl;
+				errors_fd(plmi, { plmi, 1, 0, 0, 0, 0, 0 }, immediateContext);
+				errors_fd(plmi, { plmi, 0, 1, 0, 0, 0, 0 }, immediateContext);
+				errors_fd(plmi, { plmi, 0, 0, 1, 0, 0, 0 }, immediateContext);
+				errors_fd(plmi, { plmi, 0, 0, 0, 1, 0, 0 }, immediateContext);
+				errors_fd(plmi, { plmi, 0, 0, 0, 0, 1, 0 }, immediateContext);
+				errors_fd(plmi, { plmi, 0, 0, 0, 0, 0, 1 }, immediateContext);
+			}
+			if (iteration % 5 == 0)
+			{
+				updatePositions_fin_diff(immediateContext);
+				std::cout << "positions updated" << std::endl;
+				//colors_fin_diff.gpuToCpu(immediateContext);
+				//errors_fin_diff.gpuToCpu(immediateContext);
+			}
+		}
+		if (iteration == 0)
+		{
+			CSInput.buffer_content.trustRegion = 1;
+			CSInput.updateBuffer(immediateContext);
+		}
+		if (iteration % 5 == 0 && iteration > 2 && triangleGoal > nTriangles)
+		{
+			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
+			//std::cout << triangleGoal << " " << nTriangles << std::endl;
+			insertionV3(d3d->getDevice(), immediateContext);
+			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
+
+			if (1 || delaunayUntilNthIteration > iteration)
+			{
+				delaunay(d3d->getDevice(), immediateContext);
+				std::cout << "delaunay done" << std::endl;
+				std::flush(std::cout);
+			}
+		}
+
+		if (iteration % 5 == 0 && triangleGoal > nTriangles && eliminate_degenerate_triangles(d3d->getDevice(), immediateContext))
+		{
+			std::cout << "eliminated at least one triangle" << std::endl;
+			//Sleep(1000);
+			std::cout << "sleeping end" << std::endl;
+		}
+
+		if (iteration % 5 == 0)
+			computeConstantColors(immediateContext);
+
+		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
+
+		render(immediateContext, mode);
+		if (iteration % 5 == 6)
+			d3d->saveImageFromBackBuffer(filename);
+	}
+	else if (mode == en_linear)
+	{
+		if (iteration < 1210)
+		{
+			computeGradients_cplg(immediateContext);
+			std::cout << "gradients computed" << std::endl;
+			updatePositions(immediateContext);
+			std::cout << "positions updated" << std::endl;
+		}
+		computeLinearGradients(immediateContext);
+
+		render(immediateContext, mode);
+	}
+
+	if (computeErrorInPS)
+	{
+		//float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
+		//std::cout << "The image error is: " << err << std::endl;
+	}
+	if (iteration % 5 == 0) 
+	{
+		std::cout << iteration / 5 << " cycle(s) done" << std::endl;
+		std::cout << nTriangles << " triangles are drawn" << std::endl;
+	}
+	iteration++;
+}
+
+void Triangulator::drawV3(ID3D11DeviceContext* immediateContext, RenderMode mode)
+{
+	static int iteration = 1;
+
+	if (mode == en_constant)
+	{
+		computeErrors(immediateContext);
+		errors.gpuToCpu(immediateContext);
+
+		if (iteration < 1210)
+		{
+			computeGradients_rtt(immediateContext);
+			std::cout << "gradients computed" << std::endl;
+			updatePositions(immediateContext);
+			std::cout << "positions updated" << std::endl;
+		}
+		if (iteration > 1 && triangleGoal > nTriangles) //was iteration > 2 before
+		{
+			insertionV4(d3d->getDevice(), immediateContext);
 
 			if (delaunayUntilNthIteration > iteration)
 			{
@@ -912,14 +1161,12 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 
 		computeConstantColors(immediateContext);
 
-		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
-
 		render(immediateContext, mode);
-		//d3d->saveImageFromBackBuffer();
+		//d3d->saveImageFromBackBuffer(filename);
 	}
 	else if (mode == en_linear)
 	{
-		if (iteration < 1210)
+		if (iteration < -1210)
 		{
 			computeGradients_cplg(immediateContext);
 			std::cout << "gradients computed" << std::endl;
@@ -930,12 +1177,7 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 
 		render(immediateContext, mode);
 	}
-	
-	if (computeErrorInPS)
-	{
-		//float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
-		//std::cout << "The image error is: " << err << std::endl;
-	}
+
 	std::cout << iteration << " cycle(s) done" << std::endl;
 	std::cout << nTriangles << " triangles are drawn" << std::endl;
 	iteration++;
@@ -1065,6 +1307,9 @@ void Triangulator::computeConstantColors(ID3D11DeviceContext* immediateContext)
 
 	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 }
 
 void Triangulator::computeLinearGradients(ID3D11DeviceContext* immediateContext)
@@ -1077,12 +1322,18 @@ void Triangulator::computeLinearGradients(ID3D11DeviceContext* immediateContext)
 	ID3D11UnorderedAccessView* ccc_uav[] = { gradientCoefficients.getUnorderedAccessView() };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, ccc_uav, NULL);
 
+	CSNum.buffer_content.num = indices.buffer_content.size() / 3;
+	CSNum.updateBuffer(immediateContext);
+
+	ID3D11Buffer* CB_CS[] = { CSNum.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+
 	//UINT groupsX = (UINT)colors.buffer_content.size();
 	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
-	if (groupsX % 128 == 0)
-		groupsX /= 128;
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
 	else
-		groupsX = groupsX / 128 + 1;
+		groupsX = groupsX / 64 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);
 
 
@@ -1092,6 +1343,9 @@ void Triangulator::computeLinearGradients(ID3D11DeviceContext* immediateContext)
 
 	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 }
 
 void Triangulator::ccc_bi_interp(ID3D11DeviceContext* immediateContext)
@@ -1158,10 +1412,10 @@ void Triangulator::computeGradients_rtt(ID3D11DeviceContext* immediateContext)
 
 
 	UINT groupsX = (UINT)indices.buffer_content.size() / 3;//(UINT)gradients_rtt.buffer_content.size();
-	if (groupsX % 512 == 0)
-		groupsX /= 512;
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
 	else
-		groupsX = groupsX / 512 + 1;
+		groupsX = groupsX / 64 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);
 
 
@@ -1219,10 +1473,10 @@ void Triangulator::finite_differences(float plmi, ID3D11DeviceContext* immediate
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
-	if (groupsX % 128 == 0)
-		groupsX /= 128;
+	if (groupsX % 32 == 0)
+		groupsX /= 32;
 	else
-		groupsX = groupsX / 128 + 1;
+		groupsX = groupsX / 32 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
 
 	ID3D11Buffer* clean_cb[] = { NULL };
@@ -1386,10 +1640,10 @@ void Triangulator::computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immed
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
-	if (groupsX % 128 == 0)
-		groupsX /= 128;
+	if (groupsX % 32 == 0)
+		groupsX /= 32;
 	else
-		groupsX = groupsX / 128 + 1;
+		groupsX = groupsX / 32 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
 	//TODO: UpdateBuffer
 
@@ -1465,6 +1719,80 @@ void Triangulator::computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immed
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
 }
 
+void Triangulator::color_fd(float plmi, CB_FiniteDiffInput cb, ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pFiniteDifferences, NULL, 0);
+
+	ID3D11ShaderResourceView* up_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 3, up_srv);
+
+	ID3D11UnorderedAccessView* up_uav[] = { colors_fin_diff.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, up_uav, NULL);
+
+	CSfin_diff_Input.buffer_content.dxA = cb.dxA; CSfin_diff_Input.buffer_content.dxB = cb.dxB; CSfin_diff_Input.buffer_content.dxC = cb.dxC;
+	CSfin_diff_Input.buffer_content.dyA = cb.dyA; CSfin_diff_Input.buffer_content.dyB = cb.dyB; CSfin_diff_Input.buffer_content.dyC = cb.dyC;
+	CSfin_diff_Input.buffer_content.eps = plmi;
+
+	ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
+	else
+		groupsX = groupsX / 64 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);											
+										
+
+	//cleanup
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 3, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+}
+
+void Triangulator::errors_fd(float plmi, CB_FiniteDiffInput cb, ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pComputeErrors_fin_diff, NULL, 0);
+
+	ID3D11ShaderResourceView* up_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), colors_fin_diff.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 4, up_srv);
+
+	ID3D11UnorderedAccessView* up_uav[] = { errors_fin_diff.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, up_uav, NULL);
+
+	CSfin_diff_Input.buffer_content.dxA = cb.dxA; CSfin_diff_Input.buffer_content.dxB = cb.dxB; CSfin_diff_Input.buffer_content.dxC = cb.dxC;
+	CSfin_diff_Input.buffer_content.dyA = cb.dyA; CSfin_diff_Input.buffer_content.dyB = cb.dyB; CSfin_diff_Input.buffer_content.dyC = cb.dyC;
+	CSfin_diff_Input.buffer_content.eps = plmi;
+
+	ID3D11Buffer* CB_CS[] = { CSfin_diff_Input.getBuffer() };
+	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
+	CSfin_diff_Input.updateBuffer(immediateContext);
+
+	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
+	if (groupsX % 64 == 0)
+		groupsX /= 64;
+	else
+		groupsX = groupsX / 64 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);
+
+
+	//cleanup
+	ID3D11Buffer* clean_cb[] = { NULL };
+	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
+
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 4, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+}
+
 void Triangulator::updatePositions(ID3D11DeviceContext* immediateContext)
 {
 	immediateContext->CSSetShader(pUpdatePositions_cc, NULL, 0);
@@ -1481,10 +1809,10 @@ void Triangulator::updatePositions(ID3D11DeviceContext* immediateContext)
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	UINT groupsX = (UINT)positions.buffer_content.size();
-	if (groupsX % 512 == 0)
-		groupsX /= 512;
+	if (groupsX % 256 == 0)
+		groupsX /= 256;
 	else
-		groupsX = groupsX / 512 + 1;
+		groupsX = groupsX / 256 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);
 
 
@@ -1515,10 +1843,10 @@ void Triangulator::updatePositions_fin_diff(ID3D11DeviceContext* immediateContex
 	immediateContext->CSSetConstantBuffers(0, 1, CB_CS);
 
 	UINT groupsX = (UINT)positions.buffer_content.size();
-	if (groupsX % 512 == 0)
-		groupsX /= 512;
+	if (groupsX % 256 == 0)
+		groupsX /= 256;
 	else
-		groupsX = groupsX / 512 + 1;
+		groupsX = groupsX / 256 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);
 
 
@@ -1627,6 +1955,33 @@ void Triangulator::computeImageErrorCS(ID3D11DeviceContext* immediateContext)
 	//cleanup
 	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL };
 	immediateContext->CSSetShaderResources(0, 2, clean_srv);
+
+	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
+}
+
+void Triangulator::computeGradients_bipct(ID3D11DeviceContext* immediateContext)
+{
+	immediateContext->CSSetShader(pCG_bipct, NULL, 0);
+
+	ID3D11ShaderResourceView* cg_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), colors.getShaderResourceView(), image->getShaderResourceView() };
+	immediateContext->CSSetShaderResources(0, 4, cg_srv);
+
+	ID3D11UnorderedAccessView* cg_uav[] = { gradients_rtt.getUnorderedAccessView() };
+	immediateContext->CSSetUnorderedAccessViews(0, 1, cg_uav, NULL);
+
+
+	UINT groupsX = (UINT)indices.buffer_content.size() / 3;
+	if (groupsX % 32 == 0)
+		groupsX /= 32;
+	else
+		groupsX = groupsX / 32 + 1;
+	immediateContext->Dispatch(groupsX, 1, 1);
+
+
+	//cleanup
+	ID3D11ShaderResourceView* clean_srv[] = { NULL, NULL, NULL, NULL };
+	immediateContext->CSSetShaderResources(0, 4, clean_srv);
 
 	ID3D11UnorderedAccessView* clean_uav[] = { NULL };
 	immediateContext->CSSetUnorderedAccessViews(0, 1, clean_uav, NULL);
@@ -2239,6 +2594,7 @@ int Triangulator::insertion2(ID3D11Device* device, ID3D11DeviceContext* immediat
 
 int Triangulator::insertionV3(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
 {
+	positions.gpuToCpu(immediateContext);
 	int n_before = indices.buffer_content.size() / 3;
 	static float threshold = 1.0f;
 	//errorsPS.gpuToCpu(immediateContext); //changed here
@@ -2249,33 +2605,137 @@ int Triangulator::insertionV3(ID3D11Device* device, ID3D11DeviceContext* immedia
 	for (unsigned int i = 0; i < errorsPS.buffer_content.size(); i++) 
 	{
 		Vec4u err = errorsPS.buffer_content[i];
-		std::cout << "errorPS: " << err.r << " " << err.g << " " << err.b << std::endl;
+		//std::cout << "errorPS: " << err.r << " " << err.g << " " << err.b << std::endl;
 		Vec3f errf = { err.r / (255.0f * 255.0f), err.g / (255.0f * 255.0f), err.b / (255.0f * 255.0f) };
 		float errS = (errf.r + errf.g + errf.b) / 3.0f;
 		errS /= image->getWidth() * image->getHeight();
 		errS = (float)(sqrt(errS) * 255.0f);
-		std::cout << errS << std::endl;
+		//std::cout << "Triangle error from PS: " << errS << std::endl;
 		if (errS > threshold)									//changed here (before: 3.0f), changed again (before: 1.0f)
 			trianglesToInsertInto.push_back(std::make_pair(i, errS));
 			//trianglesToInsertInto.push_back(i);
 	}
 
-	if (trianglesToInsertInto.size() == 0)
-		threshold = threshold - 0.3f < 0 ? 0.1f : threshold - 0.3f;
+	if (trianglesToInsertInto.size() == 0) 
+	{
+		//threshold = threshold - 0.1f < 0 ? 0.1f : threshold - 0.1f;
+		triangleGoal = nTriangles;
+	}
 
 	std::sort(trianglesToInsertInto.begin(), trianglesToInsertInto.end(), sort_pred());
 
-	for (int i = 0; i < trianglesToInsertInto.size(); i++) 
+	//int size = 25 < trianglesToInsertInto.size() ? 25 : trianglesToInsertInto.size();
+
+	for (int i = 0; i < trianglesToInsertInto.size(); i++)
 	{
 		//unsigned int tri = trianglesToInsertInto[i];
+		unsigned int tri = trianglesToInsertInto[i].first;
+		if (nTriangles < triangleGoal)
+			insert_vertex_center(tri, device, immediateContext);
+		//else
+			//triangleGoal = nTriangles;
+	}
+
+	int n_after = indices.buffer_content.size() / 3;
+	//errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 });	//changed here (commented out)
+	updateDataOnGPU(device, immediateContext);			//changed here (commented out)
+
+	return n_after - n_before;
+}
+
+int Triangulator::insertionV3_tri_in_tri(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	positions.gpuToCpu(immediateContext);
+	int n_before = indices.buffer_content.size() / 3;
+	static float threshold = 1.0f;
+
+	std::vector<bool> marked;
+	marked.resize(indices.buffer_content.size() / 3, false);
+
+	std::vector<std::pair<int, float>> trianglesToInsertInto;
+
+	for (unsigned int i = 0; i < errorsPS.buffer_content.size(); i++)
+	{
+		Vec4u err = errorsPS.buffer_content[i];
+		Vec3f errf = { err.r / (255.0f * 255.0f), err.g / (255.0f * 255.0f), err.b / (255.0f * 255.0f) };
+		float errS = (errf.r + errf.g + errf.b) / 3.0f;
+		errS /= image->getWidth() * image->getHeight();
+		errS = (float)(sqrt(errS) * 255.0f);
+		if (errS > threshold)									
+			trianglesToInsertInto.push_back(std::make_pair(i, errS));
+	}
+
+	if (trianglesToInsertInto.size() == 0)
+	{
+		//threshold = threshold - 0.3f < 0 ? 0.1f : threshold - 0.3f;
+		triangleGoal = nTriangles;
+	}
+
+	std::sort(trianglesToInsertInto.begin(), trianglesToInsertInto.end(), sort_pred());
+
+	for (int i = 0; i < trianglesToInsertInto.size(); i++)
+	{
+		//unsigned int tri = trianglesToInsertInto[i];
+		unsigned int tri = trianglesToInsertInto[i].first;
+		if (nTriangles < triangleGoal)
+			insert_triangle_into_triangle(tri, marked, device, immediateContext);
+	}
+
+	int n_after = indices.buffer_content.size() / 3;
+	//errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 });	//changed here (commented out)
+	updateDataOnGPU(device, immediateContext);			//changed here (commented out)
+
+	return n_after - n_before;
+}
+
+int Triangulator::insertionV4(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
+{
+	int n_before = indices.buffer_content.size() / 3;
+	static bool first_iter = true;
+	float total = 0;
+	if (first_iter) 
+	{
+		for (int i = 0; i < errors.buffer_content.size(); i++) 
+		{
+			float err = errors.buffer_content[i];
+			err = err * 0.5f * 255 * 255;
+			err = sqrt(err);
+			total += err;
+		}
+		total /= errors.buffer_content.size();
+		first_iter = false;
+	}
+
+	//static float threshold = first_iter ? total : threshold;//10.0f;
+	static float threshold = 10.0f;
+	float decrement = 3.0f;
+
+	std::vector<std::pair<int, float>> trianglesToInsertInto;
+
+	for (unsigned int i = 0; i < errors.buffer_content.size(); i++)
+	{
+		float errS = errors.buffer_content[i];
+		errS = errS * 0.5f * 255 * 255;
+		errS = sqrt(errS);
+		std::cout << "error from CS is: " << errS << std::endl;
+		if (errS > threshold)									
+			trianglesToInsertInto.push_back(std::make_pair(i, errS));
+	}
+
+	if (trianglesToInsertInto.size() == 0)
+		threshold = threshold - decrement < 0 ? 1.0f : threshold - decrement;
+
+	std::sort(trianglesToInsertInto.begin(), trianglesToInsertInto.end(), sort_pred());
+
+	for (int i = 0; i < trianglesToInsertInto.size(); i++)
+	{
 		unsigned int tri = trianglesToInsertInto[i].first;
 		if (nTriangles < triangleGoal)
 			insert_vertex_center(tri, device, immediateContext);
 	}
 
 	int n_after = indices.buffer_content.size() / 3;
-	//errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 });	//changed here (commented out)
-	updateDataOnGPU(device, immediateContext);			//changed here (commented out)
+	updateDataOnGPU(device, immediateContext);			
 
 	return n_after - n_before;
 }
@@ -2374,7 +2834,10 @@ void Triangulator::updateDataOnGPU(ID3D11Device* device, ID3D11DeviceContext* im
 
 void Triangulator::createRegularGrid()
 {
+	triangleGoal = 10000;//1400; //for tomatoes without edge crossing avoidance (TODO)
+	//triangleGoal = 800;
 	int startingTriangleCount = 200;
+	//int startingTriangleCount = 1000;
 	if (nTriangles < startingTriangleCount)
 		startingTriangleCount = nTriangles;
 

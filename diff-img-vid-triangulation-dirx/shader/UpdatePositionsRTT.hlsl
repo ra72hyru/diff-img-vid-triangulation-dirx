@@ -406,7 +406,7 @@ float gradient_rtt(float3 tri_color, float dx, float dy, float2 A, float2 B, flo
     return grad;
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(256, 1, 1)]
 void main( uint DTid : SV_DispatchThreadID )
 {
     float2 gradient = float2(0.0f, 0.0f);
@@ -438,6 +438,7 @@ void main( uint DTid : SV_DispatchThreadID )
     
     bool on_boundary = false;
     float2 position = asfloat(positions.Load2(DTid.x * 8));
+    float2 position_old = position;
     if (position.x <= 0.0f || position.x >= width)
     {
         on_boundary = true;
@@ -500,7 +501,40 @@ void main( uint DTid : SV_DispatchThreadID )
     position.x = min(max(0, position.x), width);
     position.y = min(max(0, position.y), height);
     
-    positions.Store2(DTid.x * 8, asuint(position));
+    bool store_new = true;
+    [unroll(15)]
+    for (uint j = 0; j < count; j++)
+    {
+        uint tri_index = neighbor_list.Load((offset + j) * 4);
+        uint3 ind = indices.Load3(tri_index * 12);
+        
+        float2 neighbor_gradient;
+        if (1 || ind.x == DTid)
+        {
+            float2 posA = asfloat(positions.Load2(ind.x * 8));
+            float2 posB = asfloat(positions.Load2(ind.y * 8));
+            float2 posC = asfloat(positions.Load2(ind.z * 8));
+            store_new = cross(posB - posA, posC - posA) < 0 ? false : true;
+        }
+        else if (ind.y == DTid)
+        {
+            float2 posA = asfloat(positions.Load2(ind.x * 8));
+            float2 posB = asfloat(positions.Load2(ind.y * 8));
+            float2 posC = asfloat(positions.Load2(ind.z * 8));
+            store_new = cross(posA - posB, posC - posB) < 0 ? false : true;
+        }
+        else
+        {
+            float2 posA = asfloat(positions.Load2(ind.x * 8));
+            float2 posB = asfloat(positions.Load2(ind.y * 8));
+            float2 posC = asfloat(positions.Load2(ind.z * 8));
+            store_new = cross(posA - posC, posB - posC) < 0 ? false : true;
+        }
+    }
+    
+    if (store_new)
+        positions.Store2(DTid.x * 8, asuint(position));
+    
     //positions.Store2(DTid.x * 8, asuint(gradient));
     return;
 }

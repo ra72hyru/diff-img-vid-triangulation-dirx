@@ -3,6 +3,11 @@ ByteAddressBuffer indices : register(t1);
 Texture2D image : register(t2);
 RWByteAddressBuffer coefficients : register(u0);
 
+cbuffer params : register(b0)
+{
+    int num;
+}
+
 static float2 points[7] = { float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f), float2(-1.0f, -1.0f) };
 
 float cross(float2 v, float2 w)
@@ -91,12 +96,12 @@ float signed_triangle_area(float2 A, float2 B, float2 C)
     return 0.5 * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y));
 }
 
-bool point_inside_triangle__(float2 p, float2 A, float2 B, float2 C)
+bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
 {
     float s = 1.0 / (2.0 * signed_triangle_area(A, B, C)) * (A.y * C.x - A.x * C.y + p.x * (C.y - A.y) + p.y * (A.x - C.x));
     float t = 1.0 / (2.0 * signed_triangle_area(A, B, C)) * (A.x * B.y - A.y * B.x + p.x * (A.y - B.y) + p.y * (B.x - A.x));
 
-    if (s >= -1E-5 && t >= -1E-5 && 1 - s - t >= -1E-5)
+    if (s >= -1E-4 && t >= -1E-4 && 1 - s - t >= -1E-4)
         return true;
     return false;
 }
@@ -108,7 +113,7 @@ float2 normal_in(float2 v, float2 w)
     return n;
 }
 
-bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
+bool point_inside_triangle__(float2 p, float2 A, float2 B, float2 C)
 {
     float2 ab = B - A;
     float2 ac = C - A;
@@ -154,7 +159,7 @@ void append(float2 p, inout int size)
 
 bool point_in_polygon(float2 p, in int size)
 {
-    const float eps = 1E-3;
+    const float eps = 1E-5;
     for (int i = 0; i < size; i++)
     {
         float2 ppi = p - points[i];
@@ -257,14 +262,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
 
     r1 = float3(0, 0, 0);
     r2 = float3(0, 0, 0);
-    const float EPS = 1E-5;
-    const float eps = 1E-3;
+    const float EPS = 1E-8; //1E-5
+    const float eps = 0;    //1E-3
     float2 A = ordered_plgn[0];
     for (int o = 0; o < ordered_size - 2; o++)
     {
-        //if (triangle_area(ordered_plgn[0], ordered_plgn[o + 1], ordered_plgn[o+2]) < 0.2)
-          //  continue;
-        //float m1 = 0, t1 = 0, m2 = 0, t2 = 0, m12 = 0, m22 = 0, t12 = 0, t22 = 0, c = 0, d = 0, c2 = 0, d2 = 0, dc = 0, d2c2 = 0, d3c3 = 0, d4c4 = 0, m2m1 = 0, t2t1 = 0, t22t12 = 0, m22m12 = 0, m23m13 = 0, m2t2m1t1 = 0, m22t2m12t1 = 0, m2t22m1t12 = 0;
+        
         float2 C = ordered_plgn[o + 1];
         float2 B = ordered_plgn[o + 2];
         r2.z += triangle_area(A, B, C);
@@ -279,12 +282,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
         if (abs(tri_ac.x) <= EPS)
         {
             float m1 = tri_bc.y / tri_bc.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = B.y - m1 * B.x;
             float m2 = tri_ab.y / tri_ab.x;
-            float t2 = B.y - m2 * B.x;
-            m1 = abs(m1) < eps ? 0 : m1;
-            t1 = abs(t1) < eps ? 0 : t1;
             m2 = abs(m2) < eps ? 0 : m2;
+            float t2 = B.y - m2 * B.x;
+            t1 = abs(t1) < eps ? 0 : t1;
             t2 = abs(t2) < eps ? 0 : t2;
 
             float c = min(A.x, B.x);
@@ -305,12 +308,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
         else if (abs(tri_bc.x) <= EPS)
         {
             float m1 = tri_ac.y / tri_ac.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = C.y - m1 * C.x;
             float m2 = tri_ab.y / tri_ab.x;
-            float t2 = B.y - m2 * B.x;
-            m1 = abs(m1) < eps ? 0 : m1;
-            t1 = abs(t1) < eps ? 0 : t1;
             m2 = abs(m2) < eps ? 0 : m2;
+            float t2 = B.y - m2 * B.x;
+            t1 = abs(t1) < eps ? 0 : t1;
             t2 = abs(t2) < eps ? 0 : t2;
             
             float c = min(A.x, B.x);
@@ -331,12 +334,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
         else if (abs(tri_ab.x) <= EPS)
         {
             float m1 = tri_ac.y / tri_ac.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = C.y - m1 * C.x;
             float m2 = tri_bc.y / tri_bc.x;
-            float t2 = B.y - m2 * B.x;
-            m1 = abs(m1) < eps ? 0 : m1;
-            t1 = abs(t1) < eps ? 0 : t1;
             m2 = abs(m2) < eps ? 0 : m2;
+            float t2 = B.y - m2 * B.x;
+            t1 = abs(t1) < eps ? 0 : t1;
             t2 = abs(t2) < eps ? 0 : t2;
             
             float c = min(A.x, C.x);
@@ -359,12 +362,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
             if (A.x < C.x && C.x < B.x || B.x < C.x && C.x < A.x)
             {
                 float m1 = tri_ac.y / tri_ac.x;
+                m1 = abs(m1) < eps ? 0 : m1;
                 float t1 = C.y - m1 * C.x;
                 float m2 = tri_ab.y / tri_ab.x;
-                float t2 = B.y - m2 * B.x;
-                m1 = abs(m1) < eps ? 0 : m1;
-                t1 = abs(t1) < eps ? 0 : t1;
                 m2 = abs(m2) < eps ? 0 : m2;
+                float t2 = B.y - m2 * B.x;
+                t1 = abs(t1) < eps ? 0 : t1;
                 t2 = abs(t2) < eps ? 0 : t2;
                 
                 float c = min(A.x, C.x);
@@ -383,8 +386,8 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
                 //r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_bc.y / tri_bc.x;
-                t1 = C.y - m1 * C.x;
                 m1 = abs(m1) < eps ? 0 : m1;
+                t1 = C.y - m1 * C.x;
                 t1 = abs(t1) < eps ? 0 : t1;
                 
                 c = min(B.x, C.x);
@@ -405,12 +408,12 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
             else if (A.x < B.x && B.x < C.x || C.x < B.x && B.x < A.x)
             {
                 float m1 = tri_ab.y / tri_ab.x;
+                m1 = abs(m1) < eps ? 0 : m1;
                 float t1 = B.y - m1 * B.x;
                 float m2 = tri_ac.y / tri_ac.x;
-                float t2 = C.y - m2 * C.x;
-                m1 = abs(m1) < eps ? 0 : m1;
-                t1 = abs(t1) < eps ? 0 : t1;
                 m2 = abs(m2) < eps ? 0 : m2;
+                float t2 = C.y - m2 * C.x;
+                t1 = abs(t1) < eps ? 0 : t1;
                 t2 = abs(t2) < eps ? 0 : t2;
                 
                 float c = min(A.x, B.x);
@@ -429,8 +432,8 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
                 //r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_bc.y / tri_bc.x;
-                t1 = B.y - m1 * B.x;
                 m1 = abs(m1) < eps ? 0 : m1;
+                t1 = B.y - m1 * B.x;
                 t1 = abs(t1) < eps ? 0 : t1;
                 
                 c = min(C.x, B.x);
@@ -448,15 +451,15 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
                 //r2.y += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
                 //r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
             }
-            else if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
+            else //if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
             {
                 float m1 = tri_ac.y / tri_ac.x;
+                m1 = abs(m1) < eps ? 0 : m1;
                 float t1 = C.y - m1 * C.x;
                 float m2 = tri_bc.y / tri_bc.x;
-                float t2 = B.y - m2 * B.x;
-                m1 = abs(m1) < eps ? 0 : m1;
-                t1 = abs(t1) < eps ? 0 : t1;
                 m2 = abs(m2) < eps ? 0 : m2;
+                float t2 = B.y - m2 * B.x;
+                t1 = abs(t1) < eps ? 0 : t1;
                 t2 = abs(t2) < eps ? 0 : t2;
                 
                 float c = min(A.x, C.x);
@@ -475,8 +478,9 @@ void integrate_over_polygon(inout float3 r1, inout float3 r2, in int size)
                 //r2.z += abs(0.5 * (m2 - m1) * (d * d - c * c) + (t2 - t1) * (d - c));
                 
                 m1 = tri_ab.y / tri_ab.x;
-                t1 = C.y - m1 * C.x;
                 m1 = abs(m1) < eps ? 0 : m1;
+                //t1 = C.y - m1 * C.x;
+                t1 = B.y - m1 * B.x;
                 t1 = abs(t1) < eps ? 0 : t1;
                 
                 c = min(A.x, B.x);
@@ -555,21 +559,28 @@ bool intersect_segment_segment(float2 _a, float2 _b, float2 _c, float2 _d, inout
     _t = _a + _t.x * ba;
     return true;
 }
-
-float3 integrate_polynomials(float2 A, float2 B, float2 C)
+            
+float3 integrate_polynomials(float2 A, float2 B, float2 C, inout float2 r)
 {
     float2 tri_ac = C - A;
     float2 tri_bc = C - B;
     float2 tri_ab = B - A;
     
+    float eps = 0;//1E-3;
+    
+    r = float2(0, 0);
     float3 res = float3(0, 0, 0);
     if (abs(tri_ac.x) <= 1E-5)
     {
         float m1 = tri_bc.y / tri_bc.x;
+        m1 = abs(m1) < eps ? 0 : m1;
         float t1 = B.y - m1 * B.x;
         float m2 = tri_ab.y / tri_ab.x;
+        m2 = abs(m2) < eps ? 0 : m2;
         float t2 = B.y - m2 * B.x;
-
+        t1 = abs(t1) < eps ? 0 : t1;
+        t2 = abs(t2) < eps ? 0 : t2;
+        
         float c = min(A.x, B.x);
         float d = max(A.x, B.x);
             
@@ -579,14 +590,20 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
         res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
         res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
         res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+        r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+        r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
     }
     else if (abs(tri_bc.x) <= 1E-5)
     {
         float m1 = tri_ac.y / tri_ac.x;
+        m1 = abs(m1) < eps ? 0 : m1;
         float t1 = C.y - m1 * C.x;
         float m2 = tri_ab.y / tri_ab.x;
+        m2 = abs(m2) < eps ? 0 : m2;
         float t2 = B.y - m2 * B.x;
-
+        t1 = abs(t1) < eps ? 0 : t1;
+        t2 = abs(t2) < eps ? 0 : t2;
+        
         float c = min(A.x, B.x);
         float d = max(A.x, B.x);
             
@@ -596,14 +613,20 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
         res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
         res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
         res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+        r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+        r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
     }
     else if (abs(tri_ab.x) <= 1E-5)
     {
         float m1 = tri_ac.y / tri_ac.x;
+        m1 = abs(m1) < eps ? 0 : m1;
         float t1 = C.y - m1 * C.x;
         float m2 = tri_bc.y / tri_bc.x;
+        m2 = abs(m2) < eps ? 0 : m2;
         float t2 = B.y - m2 * B.x;
-
+        t1 = abs(t1) < eps ? 0 : t1;
+        t2 = abs(t2) < eps ? 0 : t2;
+        
         float c = min(A.x, C.x);
         float d = max(A.x, C.x);
             
@@ -613,16 +636,22 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
         res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
         res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
         res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+        r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+        r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
     }
     else
     {
         if (A.x < C.x && C.x < B.x || B.x < C.x && C.x < A.x)
         {
             float m1 = tri_ac.y / tri_ac.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = C.y - m1 * C.x;
             float m2 = tri_ab.y / tri_ab.x;
+            m2 = abs(m2) < eps ? 0 : m2;
             float t2 = B.y - m2 * B.x;
-
+            t1 = abs(t1) < eps ? 0 : t1;
+            t2 = abs(t2) < eps ? 0 : t2;
+            
             float c = min(A.x, C.x);
             float d = max(A.x, C.x);
                 
@@ -632,9 +661,14 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
                 
             m1 = tri_bc.y / tri_bc.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             t1 = C.y - m1 * C.x;
+            t1 = abs(t1) < eps ? 0 : t1;
+            
             c = min(B.x, C.x);
             d = max(B.x, C.x);
                 
@@ -644,14 +678,20 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
         }
         else if (A.x < B.x && B.x < C.x || C.x < B.x && B.x < A.x)
         {
             float m1 = tri_ab.y / tri_ab.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = B.y - m1 * B.x;
             float m2 = tri_ac.y / tri_ac.x;
+            m2 = abs(m2) < eps ? 0 : m2;
             float t2 = C.y - m2 * C.x;
-				
+            t1 = abs(t1) < eps ? 0 : t1;
+            t2 = abs(t2) < eps ? 0 : t2;
+            
             float c = min(A.x, B.x);
             float d = max(A.x, B.x);
                 
@@ -661,26 +701,37 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
                 
             m1 = tri_bc.y / tri_bc.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             t1 = B.y - m1 * B.x;
+            t1 = abs(t1) < eps ? 0 : t1;
+            
             c = min(C.x, B.x);
             d = max(C.x, B.x);
-                
+            
             d3 = d * d * d;
             c3 = c * c * c;
         
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
         }
-        else if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
+        else// if (B.x < A.x && A.x < C.x || C.x < A.x && A.x < B.x)
         {
             float m1 = tri_ac.y / tri_ac.x;
+            m1 = abs(m1) < eps ? 0 : m1;
             float t1 = C.y - m1 * C.x;
             float m2 = tri_bc.y / tri_bc.x;
+            m2 = abs(m2) < eps ? 0 : m2;
             float t2 = B.y - m2 * B.x;
-
+            t1 = abs(t1) < eps ? 0 : t1;
+            t2 = abs(t2) < eps ? 0 : t2;
+            
             float c = min(A.x, C.x);
             float d = max(A.x, C.x);
                 
@@ -690,9 +741,14 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
                 
             m1 = tri_ab.y / tri_ab.x;
-            t1 = C.y - m1 * C.x;
+            m1 = abs(m1) < eps ? 0 : m1;
+            t1 = B.y - m1 * B.x;
+            t1 = abs(t1) < eps ? 0 : t1;
+            
             c = min(A.x, B.x);
             d = max(A.x, B.x);
                 
@@ -702,30 +758,28 @@ float3 integrate_polynomials(float2 A, float2 B, float2 C)
             res.x += abs(0.25 * (m2 - m1) * (d * d3 - c * c3) + 1.0 / 3.0 * (t2 - t1) * (d3 - c3));
             res.y += abs(1.0 / 3.0 * (0.25 * (m2 * m2 * m2 - m1 * m1 * m1) * (d * d3 - c * c3) + (m2 * m2 * t2 - m1 * m1 * t1) * (d3 - c3) + 1.5 * (m2 * t2 * t2 - m1 * t1 * t1) * (d * d - c * c) + (d - c) * (t2 * t2 * t2 - t1 * t1 * t1)));
             res.z += abs(0.5 * (0.25 * (m2 * m2 - m1 * m1) * (d * d3 - c * c3) + 2.0 / 3.0 * (m2 * t2 - m1 * t1) * (d3 - c3) + 0.5 * (t2 * t2 - t1 * t1) * (d * d - c * c)));
+            r.x += abs(1.0 / 3.0 * (m2 - m1) * (d3 - c3) + 0.5 * (t2 - t1) * (d * d - c * c));
+            r.y += abs(0.5 * (1.0 / 3.0 * (m2 * m2 - m1 * m1) * (d3 - c3) + (m2 * t2 - m1 * t1) * (d * d - c * c) + (t2 * t2 - t1 * t1) * (d - c)));
         }
     }
     return res;
 }
 
-[numthreads(128, 1, 1)]
+[numthreads(64, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
-    //if (DTid == 84)
-      //  return;
-    //float2 A = float2(0.0f, 0.0f), B = float2(0.0f, 0.0f), C = float2(0.0f, 0.0f);
-    uint ind_A = indices.Load(DTid * 12);
-    uint ind_B = indices.Load(DTid * 12 + 4);
-    uint ind_C = indices.Load(DTid * 12 + 8);
+    if (DTid >= num)
+        return;
     
-    float2 A = asfloat(positions.Load2(ind_A * 8));
-    float2 B = asfloat(positions.Load2(ind_B * 8));
-    float2 C = asfloat(positions.Load2(ind_C * 8));
+    uint3 inds = indices.Load3(DTid * 12);
+    
+    float2 A = asfloat(positions.Load2(inds.x * 8));
+    float2 B = asfloat(positions.Load2(inds.y * 8));
+    float2 C = asfloat(positions.Load2(inds.z * 8));
 
     float2 ab = B - A;
     float2 ac = C - A;
     float2 bc = C - B;
-    
-    float tri_area = triangle_area(A, B, C);
     
     float min_x = min(A.x, min(B.x, C.x));
     float max_x = max(A.x, max(B.x, C.x));
@@ -738,17 +792,21 @@ void main(uint DTid : SV_DispatchThreadID)
     int pixel_left_x = ceil(max_x);
     int pixel_top_y = ceil(max_y);
     
-    float3 color = float3(0, 0, 0);
+    float tri_area = triangle_area(A, B, C);
+    float total_area = 0;
     
     float x2 = 0.0, y2 = 0.0, x = 0.0, y = 0.0, xy = 0.0, n = 0.0;
     float3 xI = float3(0.0, 0.0, 0.0);
     float3 yI = float3(0.0, 0.0, 0.0);
     float3 I = float3(0.0, 0.0, 0.0);
     
-    float3 rr = integrate_polynomials(A, B, C);
+    float2 r = float2(0, 0);
+    /*float3 rr = integrate_polynomials(A, B, C, r);
     x2 += rr.x;
     y2 += rr.y;
-    xy += rr.z;
+    xy += rr.z;*/
+    //x += r.x;
+    //y += r.y;
     
     float3 r123 = float3(0, 0, 0), r456 = float3(0, 0, 0);
     
@@ -756,7 +814,7 @@ void main(uint DTid : SV_DispatchThreadID)
     {
         for (int j = pixel_bottom_y; j < pixel_top_y; j++)
         {
-            float3 pixel_color = image.Load(int3(i, j, 0));
+            float3 pixel_color = image.Load(int3(i, j, 0)).rgb;
             //{float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f), float2(0.0f, 0.0f)}
             int size = 0;
             
@@ -770,44 +828,40 @@ void main(uint DTid : SV_DispatchThreadID)
 
             if (point_inside_triangle(x1y1, A, B, C))
             {
-                if (!point_in_polygon(x1y1, size))
-                    append(x1y1, size); //polygon.push_back
+                append(x1y1, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x2y1, A, B, C))
             {
-                if (!point_in_polygon(x2y1, size))
-                    append(x2y1, size); //polygon.push_back
+                append(x2y1, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x1y2, A, B, C))
             {
-                if (!point_in_polygon(x1y2, size))
-                    append(x1y2, size); //polygon.push_back
+                append(x1y2, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             if (point_inside_triangle(x2y2, A, B, C))
             {
-                if (!point_in_polygon(x2y2, size))
-                    append(x2y2, size); //polygon.push_back
+                append(x2y2, size); //polygon.push_back
             }
             else
                 whole_pixel = false;
             
             if (whole_pixel)
             {
-                //x2 += (1.0 / 3.0) * abs(pow(i + 1, 3) - pow(i, 3));
-                //y2 += (1.0 / 3.0) * abs(pow(j + 1, 3) - pow(j, 3));
+                x2 += (1.0 / 3.0) * abs(pow(i + 1, 3) - pow(i, 3));
+                y2 += (1.0 / 3.0) * abs(pow(j + 1, 3) - pow(j, 3));
                 float x_pl = 0.5 * abs(pow(i + 1, 2) - pow(i, 2));
                 float y_pl = 0.5 * abs(pow(j + 1, 2) - pow(j, 2));
                 x += x_pl;
                 y += y_pl;
-                //xy += x_pl * y_pl; //1.0f / 4.0f * abs(pow(i + 1, 2) - pow(i, 2)) * (pow(j + 1, 2) - pow(j, 2));
                 n += 1.0;
-                
+                total_area += 1.0;
+                xy += x_pl * y_pl; //1.0f / 4.0f * abs(pow(i + 1, 2) - pow(i, 2)) * (pow(j + 1, 2) - pow(j, 2));
                 xI += x_pl * pixel_color;
                 yI += y_pl * pixel_color;
                 I += pixel_color;
@@ -834,192 +888,102 @@ void main(uint DTid : SV_DispatchThreadID)
                 float2 i1;
                 int intrsct;
                 //AB
-                
-                intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ab, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                }
-
-                intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ab, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i + 1, j), A, B, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ab, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i, j + 1), A, B, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ab, i0, i1);
-                if (intrsct == 2)
+                intrsct = intersect_segment_segment(float2(i + 1, j), float2(i + 1, j + 1), A, B, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
                 }
-                else if (intrsct == 1)
+                
+                intrsct = intersect_segment_segment(float2(i, j + 1), float2(i + 1, j + 1), A, B, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
                 //AC
-                
-                intrsct = intersect_segments(float2(i, j), float2(1, 0), A, ac, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                }
-
-                intrsct = intersect_segments(float2(i, j), float2(0, 1), A, ac, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i + 1, j), A, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), A, ac, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i, j + 1), A, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), A, ac, i0, i1);
-                if (intrsct == 2)
+                intrsct = intersect_segment_segment(float2(i + 1, j), float2(i + 1, j + 1), A, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
                 }
-                else if (intrsct == 1)
+                
+                intrsct = intersect_segment_segment(float2(i, j + 1), float2(i + 1, j + 1), A, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
                 //BC
-                
-                intrsct = intersect_segments(float2(i, j), float2(1, 0), B, bc, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                }
-
-                intrsct = intersect_segments(float2(i, j), float2(0, 1), B, bc, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i + 1, j), B, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i + 1, j), float2(0, 1), B, bc, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i, j), float2(i, j + 1), B, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
-                intrsct = intersect_segments(float2(i, j + 1), float2(1, 0), B, bc, i0, i1);
-                if (intrsct == 2)
-                {
-                    if (!point_in_polygon(i0, size))
-                        append(i0, size);
-                    if (!point_in_polygon(i1, size))
-                        append(i1, size);
-                }
-                else if (intrsct == 1)
+                intrsct = intersect_segment_segment(float2(i + 1, j), float2(i + 1, j + 1), B, C, i0);
+                if (intrsct)
                 {
                     if (!point_in_polygon(i0, size))
                         append(i0, size);
                 }
                 
+                intrsct = intersect_segment_segment(float2(i, j + 1), float2(i + 1, j + 1), B, C, i0);
+                if (intrsct)
+                {
+                    if (!point_in_polygon(i0, size))
+                        append(i0, size);
+                }
                 
                 if (size >= 3)
                 {
                     r123 = float3(0.0, 0.0, 0.0);
                     r456 = float3(0.0, 0.0, 0.0);
                     integrate_over_polygon(r123, r456, size);
-                    
-                    //x2 += r123.x;
-                    //y2 += r123.y;
+
                     x += r123.z;
                     y += r456.x;
-                    //xy += r456.y;
                     n += r456.z;
+                    total_area += r456.z;
                     
                     xI += r123.z * pixel_color;
                     yI += r456.x * pixel_color;
@@ -1028,6 +992,14 @@ void main(uint DTid : SV_DispatchThreadID)
             }
         }
     }
+    
+    /*if (abs(tri_area - total_area) > 1)
+    {
+        coefficients.Store3(DTid * 36, asuint(float3(0, 0, 1)));
+        coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, 1)));
+        coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, 1)));
+        return;
+    }*/
     /*if (1 || x2 != x2 || y2 != y2 || x != x || y != y || xy != xy || n != n)
     {
         coefficients.Store3(DTid * 36, asuint(float3(0, 0, x2)));
@@ -1057,17 +1029,6 @@ void main(uint DTid : SV_DispatchThreadID)
         abcB = float3(0, 0, I.z / (float) n);
     }
     
-    /*abcR = DTid == 8300 ? float3(0, 0, x2) : abcR;
-    abcG = DTid == 8300 ? float3(0, 0, 1) : abcG;
-    abcB = DTid == 8300 ? float3(0, 0, 1) : abcB;*/
-    
-    /*if (1 && DTid == 51)
-    {
-        coefficients.Store3(DTid * 36, asuint(float3(0, 0, x2)));
-        coefficients.Store3(DTid * 36 + 12, asuint(float3(0, 0, 1)));
-        coefficients.Store3(DTid * 36 + 24, asuint(float3(0, 0, 1)));
-        return;
-    }*/
     coefficients.Store3(DTid * 36, asuint(abcR));
     coefficients.Store3(DTid * 36 + 12, asuint(abcG));
     coefficients.Store3(DTid * 36 + 24, asuint(abcB));

@@ -267,6 +267,11 @@ void main(uint DTid : SV_DispatchThreadID)
     if (DTid >= num)
       return;
 
+    int3 dimensions;
+    image.GetDimensions(0, dimensions.x, dimensions.y, dimensions.z);
+    //dimensions.x -= 1;
+    //dimensions.y -= 1;
+    
     uint ind_A = indices.Load(DTid * 12);
     uint ind_B = indices.Load(DTid * 12 + 4);
     uint ind_C = indices.Load(DTid * 12 + 8);
@@ -289,8 +294,8 @@ void main(uint DTid : SV_DispatchThreadID)
     
     int pixel_right_x = floor(min_x);
     int pixel_bottom_y = floor(min_y);
-    int pixel_left_x = ceil(max_x);
-    int pixel_top_y = ceil(max_y);
+    int pixel_left_x = min(ceil(max_x), dimensions.x);
+    int pixel_top_y = min(ceil(max_y), dimensions.y);
     
     float3 color = float3(0.0f, 0.0f, 0.0f);
     float total_area = 0.0f;

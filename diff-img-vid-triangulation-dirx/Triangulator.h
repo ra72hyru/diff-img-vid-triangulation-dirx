@@ -63,6 +63,8 @@ class Triangulator
 		void draw(ID3D11DeviceContext* immediateContext, RenderMode mode);
 		void draw_fin_diff(ID3D11DeviceContext* immediateContext, RenderMode mode);
 		void drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode);
+		void drawV2_fin_diff(ID3D11DeviceContext* immediateContext, RenderMode mode);
+		void drawV3(ID3D11DeviceContext* immediateContext, RenderMode mode);
 	private:
 		void render(ID3D11DeviceContext* immediateContext, RenderMode mode);
 		void computeConstantColors(ID3D11DeviceContext* immediateContext);
@@ -73,11 +75,14 @@ class Triangulator
 		void computeGradients_cplg(ID3D11DeviceContext* immediateContext);
 		void finite_differences(float plmi, ID3D11DeviceContext* immediateContext);
 		void computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immediateContext);
+		void color_fd(float plmi, CB_FiniteDiffInput cb, ID3D11DeviceContext* immediateContext);
+		void errors_fd(float plmi, CB_FiniteDiffInput cb, ID3D11DeviceContext* immediateContext);
 		void updatePositions(ID3D11DeviceContext* immediateContext);
 		void updatePositions_fin_diff(ID3D11DeviceContext* immediateContext);
 		void computeErrors(ID3D11DeviceContext* immediateContext);
 		void computePixelVariance(ID3D11DeviceContext* immediateContext);
 		void computeImageErrorCS(ID3D11DeviceContext* immediateContext);
+		void computeGradients_bipct(ID3D11DeviceContext* immediateContext);
 
 		void delaunay(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		void delaunay_error_conscious(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
@@ -85,6 +90,8 @@ class Triangulator
 		int insertion(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		int insertion2(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		int insertionV3(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		int insertionV3_tri_in_tri(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
+		int insertionV4(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		float computeImageErrorPS(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 		float getTotalError(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 
@@ -171,6 +178,7 @@ class Triangulator
 		ID3D11ComputeShader* pUpdatePositions_fin_diff;
 		ID3D11ComputeShader* pComputeErrors;
 		ID3D11ComputeShader* pComputePixelVariance;
+		ID3D11ComputeShader* pCG_bipct;
 		ID3D11ComputeShader* pComputeImageError;
 
 		ConstantBuffer<CB_VSInput> VSInput;

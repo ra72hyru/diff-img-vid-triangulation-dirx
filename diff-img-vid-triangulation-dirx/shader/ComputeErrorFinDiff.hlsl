@@ -111,7 +111,7 @@ bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
     float2 ac = C - A;
     float2 bc = C - B;
     
-    if (dot(normal_in(ab, ac), p - A) <= 0 || dot(normal_in(ac, ab), p - A) <= 0 || dot(normal_in(bc, -ab), p - B) <= 0)
+    if (dot(normal_in(ab, ac), p - A) <= 1E-5 || dot(normal_in(ac, ab), p - A) <= 1E-5 || dot(normal_in(bc, -ab), p - B) <= 1E-5)
         return false;
     return true;
 }
@@ -450,14 +450,18 @@ float3 overlap(float2 A, float2 B, float2 C, float3 tri_color)//, float2 A2, flo
             //float fraction2 = area2 / tri_area2;
            
             float3 pixel_color = image.Load(int3(i, j, 0));
-            error += fraction * pow(abs(pixel_color - tri_color), 2);
+            //error += fraction * pow(abs(pixel_color - tri_color), 2);
+            //float3 e = (pixel_color - tri_color) * 255;
+            float3 e = float3(pixel_color.x * 255 - tri_color.x * 255, pixel_color.y * 255 - tri_color.y * 255, pixel_color.z * 255 - tri_color.z * 255);
+            //error += dot(e, e) * area;
+            error += float3(e.x * e.x, e.y * e.y, e.z * e.z) * area;
             //color2 += fraction2 * pixel_color;
         }
     }
     return error;
 }
 
-[numthreads(128, 1, 1)]
+[numthreads(64, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
     uint3 inds = indices.Load3(DTid * 12);

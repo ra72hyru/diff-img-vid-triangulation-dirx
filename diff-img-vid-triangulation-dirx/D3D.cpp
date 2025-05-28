@@ -65,8 +65,14 @@ bool D3D::createDevice()
 
 	HRESULT hr;
 
+#ifdef DEBUG
 	hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_DEBUG, NULL, 0, D3D11_SDK_VERSION, &pDevice, NULL, &pImmediateContext);
 	if (FAILED(hr)) return false;
+#else
+	hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, NULL, NULL, 0, D3D11_SDK_VERSION, &pDevice, NULL, &pImmediateContext);
+	if (FAILED(hr)) return false;
+#endif // DEBUG
+
 
 	return true;
 }
@@ -192,11 +198,14 @@ void D3D::releaseSwapChain()
 	SAFE_RELEASE(pSwapChain);
 }
 
-void D3D::saveImageFromBackBuffer()
+void D3D::saveImageFromBackBuffer(std::string image_name)
 {
 	//taken from https://github.com/tobguent/image-triangulation/blob/master/demo/D3D.cpp
-	std::wstring path = L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
-	std::string spath = "E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
+	//std::wstring path = L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
+	std::wstring path = L"D:\\Masterarbeit\\";
+	path += std::wstring(image_name.begin(), image_name.end()) + L"\\new\\rtt\\";
+	//std::string spath = "E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\" + image_name + "\\200\\";
+	std::string spath = "D:\\Masterarbeit\\" + image_name + "\\new\\rtt\\";
 	int i = 0;
 	bool writeable = false;
 
@@ -206,23 +215,23 @@ void D3D::saveImageFromBackBuffer()
 		std::stringstream sss;
 		if (i < 10) 
 		{
-			ss << path << L"_000" << i << L".png";
-			sss << spath << "_000" << i << ".png";
+			ss << path << L"_000" << i << L".bmp";
+			sss << spath << "_000" << i << ".bmp";
 		}
 		else if (i < 100) 
 		{
-			ss << path << L"_00" << i << L".png";
-			sss << spath << "_00" << i << ".png";
+			ss << path << L"_00" << i << L".bmp";
+			sss << spath << "_00" << i << ".bmp";
 		}
 		else if (i < 1000) 
 		{
-			ss << path << L"_0" << i << L".png";
-			sss << spath << "_0" << i << ".png";
+			ss << path << L"_0" << i << L".bmp";
+			sss << spath << "_0" << i << ".bmp";
 		}
 		else 
 		{
-			ss << path << L"_" << i << L".png";
-			sss << spath << "_" << i << ".png";
+			ss << path << L"_" << i << L".bmp";
+			sss << spath << "_" << i << ".bmp";
 		}
 
 		struct _stat stat;
@@ -237,7 +246,7 @@ void D3D::saveImageFromBackBuffer()
 	}
 
 	//HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatJpeg, L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\test.jpg");
-	HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatJpeg, path.c_str());
+	HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatBmp, path.c_str());
 	
 }
 

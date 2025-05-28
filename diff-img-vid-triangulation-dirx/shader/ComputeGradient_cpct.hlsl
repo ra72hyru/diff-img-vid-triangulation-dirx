@@ -85,7 +85,7 @@ float2 normal_out(float2 v, float2 w)
     return n;
 }
 
-void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, float dy, inout float gradABC, inout float gradACB, inout float gradBCA) 
+void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, float dy, inout float2 gradABC, inout float2 gradACB, inout float2 gradBCA) 
 {
     float2 ba = A - B;
     float2 ac = C - A;
@@ -100,24 +100,24 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     float2 n_ac = normalize(normal_out(ac, -ba));
     float2 n_ab = normalize(normal_out(ab, ac));
     
-    int f_right = 1;
+    int f_right_x = 1, f_right_y = 1;
     float2 n = -normal_out(bc, ba);
-    if (dot(n, float2(dx, dy)) > 0)
-        f_right = -1;
+    f_right_x = (dot(n, float2(1, 0)) > 0) ? -1 : f_right_x;
+    f_right_y = (dot(n, float2(0, 1)) > 0) ? -1 : f_right_y;
     
-    int f_left = 1;
+    int f_left_x = 1, f_left_y = 1;
     n = -normal_out(ac, -ba);
-    if (dot(n, float2(dx, dy)) > 0)
-        f_left = -1;
+    f_left_x = (dot(n, float2(1, 0)) > 0) ? -1 : f_left_x;
+    f_left_y = (dot(n, float2(0, 1)) > 0) ? -1 : f_left_y;
 
-    int f_ab = 1;
+    int f_ab_x = 1, f_ab_y = 1;
     n = -normal_out(ab, ac);
-    if (dot(n, float2(dx, dy)) > 0)
-        f_ab = -1;
+    f_ab_x = (dot(n, float2(1, 0)) > 0) ? -1 : f_ab_x;
+    f_ab_y = (dot(n, float2(0, 1)) > 0) ? -1 : f_ab_y;
     
-    gradABC = 0.0f;
-    gradACB = 0.0f;                                                             //TODO: zweite Schleife ergänzen, dritte Schleife, UpdatePositionsRTT.hlsl
-    gradBCA = 0.0f;
+    gradABC = float2(0.0, 0.0);
+    gradACB = float2(0.0, 0.0);
+    gradBCA = float2(0.0, 0.0);                                                             //TODO: zweite Schleife ergänzen, dritte Schleife, UpdatePositionsRTT.hlsl
 
     float3 dims;
     image.GetDimensions(0, dims.x, dims.y, dims.z);
@@ -185,8 +185,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - B) / length_bc;
                 c = length(p - C) / length_bc;
                 
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 p = q;
                 a = b;
@@ -208,8 +210,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_bc;
                 c = length(q - C) / length_bc;
             
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 curX = (B.x < C.x) ? curX + 1 : curX - 1;
                 //curX = endX;
@@ -229,8 +233,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - B) / length_bc;
                 c = length(p - C) / length_bc;
                 
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 p = q;
                 a = b;
@@ -252,8 +258,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_bc;
                 c = length(q - C) / length_bc;
             
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 curY = (B.y < C.y) ? curY + 1 : curY - 1;
                 //curY = endY;
@@ -273,8 +281,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - B) / length_bc;
                 c = length(p - C) / length_bc;
                 
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 p = q;
                 a = b;
@@ -296,8 +306,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_bc;
                 c = length(q - C) / length_bc;
             
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 curY = (B.y < C.y) ? curY + 1 : curY - 1;
                 //curY = endY;
@@ -317,8 +329,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - B) / length_bc;
                 c = length(p - C) / length_bc;
                 
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 p = q;
                 a = b;
@@ -340,8 +354,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_bc;
                 c = length(q - C) / length_bc;
             
-                gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-                gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+                gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+                gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+                gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+                gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
             
                 curX = (B.x < C.x) ? curX + 1 : curX - 1;
                 //curX = endX;
@@ -363,8 +379,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     d = min(c, d);
     c = 0.0f;
     
-    gradABC += err * abs(length_bc * (0.5f * (b * b - a * a) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
-    gradACB += err * abs(length_bc * (0.5f * (d * d - c * c) * (n_bc.x * dx + n_bc.y * dy))) * f_right;
+    gradABC.x += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.x)) * f_right_x;
+    gradABC.y += err * abs(length_bc * (0.5f * (b * b - a * a) * n_bc.y)) * f_right_y;
+    gradACB.x += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.x)) * f_right_x;
+    gradACB.y += err * abs(length_bc * (0.5f * (d * d - c * c) * n_bc.y)) * f_right_y;
     
     //reset variables
     curX = floor(A.x);
@@ -415,9 +433,14 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ac;
                 c = length(p - C) / length_ac;
                 
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                //gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                //gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
             
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
+                
                 p = q;
                 a = b;
                 d = c;
@@ -435,8 +458,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_ac;
                 c = length(q - C) / length_ac;
             
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 curX = A.x < C.x ? curX + 1 : curX - 1;
                 continue;
@@ -452,8 +477,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ac;
                 c = length(p - C) / length_ac;
                 
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 p = q;
                 a = b;
@@ -472,8 +499,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_ac;
                 c = length(q - C) / length_ac;
             
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 curY = A.y < C.y ? curY + 1 : curY - 1;
                 continue;
@@ -489,8 +518,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ac;
                 c = length(p - C) / length_ac;
                 
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 p = q;
                 a = b;
@@ -509,8 +540,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_ac;
                 c = length(q - C) / length_ac;
             
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 curY = A.y < C.y ? curY + 1 : curY - 1;
                 curX += 1;
@@ -527,8 +560,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ac;
                 c = length(p - C) / length_ac;
                 
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 p = q;
                 a = b;
@@ -547,8 +582,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - C) / length_ac;
                 c = length(q - C) / length_ac;
             
-                gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-                gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+                gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+                gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+                gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+                gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
             
                 curX = A.x < C.x ? curX + 1 : curX - 1;
                 curY += 1;
@@ -566,8 +603,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     b = 1.0f;
     d = min(c, d);
     c = 0.0f;
-    gradABC += err * abs(length_ac * (0.5f * (b * b - a * a) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
-    gradBCA += err * abs(length_ac * (0.5f * (d * d - c * c) * (n_ac.x * dx + n_ac.y * dy))) * f_left;
+    gradABC.x += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.x)) * f_left_x;
+    gradABC.y += err * abs(length_ac * (0.5f * (b * b - a * a) * n_ac.y)) * f_left_y;
+    gradBCA.x += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.x)) * f_left_x;
+    gradBCA.y += err * abs(length_ac * (0.5f * (d * d - c * c) * n_ac.y)) * f_left_y;
     
     curX = floor(A.x);
     curY = floor(A.y);
@@ -619,9 +658,14 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ab;
                 c = length(p - B) / length_ab;
                 
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                //gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                //gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
             
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
+                
                 p = q;
                 a = b;
                 d = c;
@@ -639,8 +683,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - B) / length_ab;
                 c = length(q - B) / length_ab;
             
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 curX = A.x < B.x ? curX + 1 : curX - 1;
                 continue;
@@ -656,8 +702,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ab;
                 c = length(p - B) / length_ab;
                 
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 p = q;
                 a = b;
@@ -676,8 +724,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - B) / length_ab;
                 c = length(q - B) / length_ab;
             
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 curY = A.y < B.y ? curY + 1 : curY - 1;
                 continue;
@@ -693,8 +743,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ab;
                 c = length(p - B) / length_ab;
                 
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 p = q;
                 a = b;
@@ -713,8 +765,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - B) / length_ab;
                 c = length(q - B) / length_ab;
             
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 curY = A.y < B.y ? curY + 1 : curY - 1;
                 curX += 1;
@@ -731,8 +785,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 b = length(p - A) / length_ab;
                 c = length(p - B) / length_ab;
                 
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 p = q;
                 a = b;
@@ -751,8 +807,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
                 d = length(p - B) / length_ab;
                 c = length(q - B) / length_ab;
             
-                gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-                gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+                gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+                gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+                gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+                gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
             
                 curX = A.x < B.x ? curX + 1 : curX - 1;
                 curY += 1;
@@ -770,8 +828,10 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     b = 1.0f;
     d = min(c, d);
     c = 0.0f;
-    gradACB += err * abs(length_ab * (0.5f * (b * b - a * a) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
-    gradBCA += err * abs(length_ab * (0.5f * (d * d - c * c) * (n_ab.x * dx + n_ab.y * dy))) * f_ab;
+    gradACB.x += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.x)) * f_ab_x;
+    gradACB.y += err * abs(length_ab * (0.5f * (b * b - a * a) * n_ab.y)) * f_ab_y;
+    gradBCA.x += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.x)) * f_ab_x;
+    gradBCA.y += err * abs(length_ab * (0.5f * (d * d - c * c) * n_ab.y)) * f_ab_y;
 }
 
 float test()
@@ -789,8 +849,8 @@ float test()
     float2 grACB = float2(0.0f, 0.0f);
     float2 grBCA = float2(0.0f, 0.0f);
     float grabcx = 0.0f;
-    gradient_rtt(tri_col, A, B, C, 1.0f, 0.0f, grABC.x, grACB.x, grBCA.x);
-    gradient_rtt(tri_col, A, B, C, 0.0f, 1.0f, grABC.y, grACB.y, grBCA.y);
+    gradient_rtt(tri_col, A, B, C, 1.0f, 0.0f, grABC, grACB, grBCA);
+    gradient_rtt(tri_col, A, B, C, 0.0f, 1.0f, grABC, grACB, grBCA);
     
     if (grABC.y != 0)//grABC.x != 0.0f)
     {
@@ -799,7 +859,7 @@ float test()
     return grBCA.x;
 }
 
-[numthreads(512, 1, 1)]
+[numthreads(64, 1, 1)]
 void main( uint DTid : SV_DispatchThreadID )
 {
     /*float tst = test();
@@ -828,9 +888,14 @@ void main( uint DTid : SV_DispatchThreadID )
     float2 grACB = float2(0.0f, 0.0f);
     float2 grBCA = float2(0.0f, 0.0f);
     
-    gradient_rtt(tri_col, A, B, C, 1.0f, 0.0f, grABC.x, grACB.x, grBCA.x);
-    gradient_rtt(tri_col, A, B, C, 0.0f, 1.0f, grABC.y, grACB.y, grBCA.y);
+    gradient_rtt(tri_col, A, B, C, 1.0f, 0.0f, grABC, grACB, grBCA);
+    //gradient_rtt(tri_col, A, B, C, 0.0f, 1.0f, grABC.y, grACB.y, grBCA.y);
+    float3 slow = float3(0,0,0);
+    for (int i = 0; i < 100000000; i++)
+    {
+        slow += image.Load(int3(1, 1, 1));
 
+    }
     if (isnan(grABC.x))
         grABC.x = 0;
     if (isnan(grACB.x))
@@ -845,6 +910,7 @@ void main( uint DTid : SV_DispatchThreadID )
         grBCA.y = 0;
     
     //grABC = float2(1, 2);
+    if (slow.x < 10000000)
         gradients.Store2(DTid * 24, asint(grABC));
     gradients.Store2(DTid * 24 + 8, asint(grACB));
     gradients.Store2(DTid * 24 + 16, asint(grBCA));

@@ -41,7 +41,7 @@ bool point_inside_triangle(float2 p, float2 A, float2 B, float2 C)
     float2 ac = C - A;
     float2 bc = C - B;
     
-    if (dot(normal_in(ab, ac), p - A) <= 0 || dot(normal_in(ac, ab), p - A) <= 0 || dot(normal_in(bc, -ab), p - B) <= 0)
+    if (dot(normal_in(ab, ac), p - A) <= 1E-5 || dot(normal_in(ac, ab), p - A) <= 1E-5 || dot(normal_in(bc, -ab), p - B) <= 1E-5)
         return false;
     return true;
 }
@@ -492,7 +492,7 @@ float3 overlap(float2 A, float2 B, float2 C)//, float2 A2, float2 B2, float2 C2,
     return color;
 }
 //TODO: helper function read and write
-[numthreads(128, 1, 1)]
+[numthreads(64, 1, 1)]
 void main(uint DTid : SV_DispatchThreadID)
 {
     uint3 inds = indices.Load3(DTid * 12);
@@ -512,7 +512,7 @@ void main(uint DTid : SV_DispatchThreadID)
     //float3 color_mi = float3(0, 0, 0);
     float3 color = overlap(A + stepSize * float2(dxA, dyA), B + stepSize * float2(dxB, dyB), C + stepSize * float2(dxC, dyC));
     //only one of dxA, dyA, dxB, dyB, dxC and dyC is 1, the rest is 0
-    //0-11 dxA pl, 12-23 dxA mi, 24-35 dyA pl, 36-47 dyA mi, etc.
+    //0-11 dxA pl, 12-23 dxA mi, 24-35 dyA pl, 36-47 dyA mi, 48-59 dxB pl, 60-71 dxB mi, 72-83 dyB pl, 84-95 dyB mi, 96-107 dxC pl, 108-119 dxC mi, 120-131 dyC pl, 132-143 dyC mi, etc.
     uint address = 24 * dyA + 48 * dxB + 72 * dyB + 96 * dxC + 120 * dyC;
     address = stepSize < 0 ? address + 12 : address;
     
