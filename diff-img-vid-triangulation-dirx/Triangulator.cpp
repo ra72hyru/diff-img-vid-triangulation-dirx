@@ -255,9 +255,9 @@ bool Triangulator::create(ID3D11Device* device)
 
 	if (!indices.createBuffer(device, D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
-	if (!colors.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;									//TODO: remove cpu access
+	if (!colors.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
-	if (!gradientCoefficients.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false; //TODO: remove cpu access
+	if (!gradientCoefficients.createBuffer(device, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
 	if (!neighbor_list.createBuffer(device, D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE)) return false;
 
@@ -640,7 +640,6 @@ void Triangulator::insert_triangle_into_triangle(unsigned int tri_index, std::ve
 
 	nTriangles = indices.buffer_content.size() / 3;
 
-	//TODO
 	//buildNeighbors(false);
 	buildEdges();
 	//updateDataOnGPU(device, immediateContext);
@@ -854,7 +853,6 @@ void Triangulator::draw_fin_diff(ID3D11DeviceContext* immediateContext, RenderMo
 
 void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode)
 {
-	//std::string path = "E:\\Uni\\Masterarbeit\\csv\\" + filename + ".csv";
 	static int iteration = 1;
 	
 	/*if (iteration > 1) 
@@ -868,7 +866,6 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 	if (iteration == -120)// && (iteration % delaunayEveryNthIteration) == 0 && delaunayUntilNthIteration > iteration)
 	{
 		delaunay(d3d->getDevice(), immediateContext);
-		//delaunay_error_conscious(d3d->getDevice(), immediateContext);
 		std::cout << "delaunay done" << std::endl;
 		std::flush(std::cout);
 	}
@@ -878,35 +875,23 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 		if (iteration > 1)
 		{
 			errorsPS.gpuToCpu(immediateContext); //changed here (added)
-			/*float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
-			computeErrors(immediateContext);
-			errors.gpuToCpu(immediateContext);
-			float e = (errorsPS.buffer_content[10].r + errorsPS.buffer_content[10].g + errorsPS.buffer_content[10].b) / 3.0f;
-			e = sqrt(0.5f * (e / errorsPS.buffer_content[10].a));
-			std::cout << "errorsPS: " << e;
-			float ee = sqrt(errors.buffer_content[10] * 0.5f * 255 * 255);
-			std::cout << "error: " << ee;*/
-
-			//std::cout << "error is: " << err << std::endl;
-			//writeErrorToFile(path, iteration - 1, err);
 		}
 		if (iteration < 1210)
 		{
 			std::ofstream fs;
-			//fs.open("E:\\Uni\\Masterarbeit\\csv\\" + filename + "_rtt_200.txt", std::ios::out | std::ios::app);
+			//fs.open(filename + "_rtt_200.txt", std::ios::out | std::ios::app);
 			//auto start = std::chrono::high_resolution_clock::now();
-			//computeGradients_rtt(immediateContext);
+			computeGradients_rtt(immediateContext);
 			//auto end = std::chrono::high_resolution_clock::now();
 			//fs << indices.buffer_content.size() / 3 << ";" << (std::chrono::duration_cast<std::chrono::microseconds>(end - start)).count() << "\n";
 			//fs.close();
-			computeGradients_bipct(immediateContext);
+			//computeGradients_bipct(immediateContext);
 			std::cout << "gradients computed" << std::endl;
 			updatePositions(immediateContext);
 			std::cout << "positions updated" << std::endl;
 		}
 		if (iteration > 2 && triangleGoal > nTriangles) 
 		{
-			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
 			//std::cout << triangleGoal << " " << nTriangles << std::endl;
 			insertionV3(d3d->getDevice(), immediateContext);
 			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
@@ -929,7 +914,7 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 
 		computeConstantColors(immediateContext);
 
-		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
+		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); 
 
 		render(immediateContext, mode);
 		//d3d->saveImageFromBackBuffer(filename);
@@ -938,12 +923,12 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 	{
 		if (iteration > 1)
 		{
-			errorsPS.gpuToCpu(immediateContext); //changed here (added)
+			errorsPS.gpuToCpu(immediateContext); 
 		}
 		if (iteration < 1210)
 		{
 			std::ofstream fs;
-			fs.open("E:\\Uni\\Masterarbeit\\csv\\" + filename + "_rtt_speed_test.txt", std::ios::out | std::ios::app);
+			fs.open(filename + "_rtt_speed_test.txt", std::ios::out | std::ios::app);
 			auto start = std::chrono::high_resolution_clock::now();
 			computeGradients_cplg(immediateContext);
 			auto end = std::chrono::high_resolution_clock::now();
@@ -955,7 +940,6 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 		}
 		if (iteration > 2 && triangleGoal > nTriangles)
 		{
-			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
 			//std::cout << triangleGoal << " " << nTriangles << std::endl;
 			insertionV3(d3d->getDevice(), immediateContext);
 			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
@@ -978,14 +962,9 @@ void Triangulator::drawV2(ID3D11DeviceContext* immediateContext, RenderMode mode
 		computeLinearGradients(immediateContext);
 		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
 		render(immediateContext, mode);
-		d3d->saveImageFromBackBuffer(filename);
+		//d3d->saveImageFromBackBuffer(filename);
 	}
 	
-	if (computeErrorInPS)
-	{
-		//float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
-		//std::cout << "The image error is: " << err << std::endl;
-	}
 	std::cout << iteration << " cycle(s) done" << std::endl;
 	std::cout << nTriangles << " triangles are drawn" << std::endl;
 	iteration++;
@@ -1016,17 +995,6 @@ void Triangulator::drawV2_fin_diff(ID3D11DeviceContext* immediateContext, Render
 		if (iteration % 5 == 0 && iteration > 1)
 		{
 			errorsPS.gpuToCpu(immediateContext); //changed here (added)
-			/*float err = computeImageErrorPS(d3d->getDevice(), immediateContext);
-			computeErrors(immediateContext);
-			errors.gpuToCpu(immediateContext);
-			float e = (errorsPS.buffer_content[10].r + errorsPS.buffer_content[10].g + errorsPS.buffer_content[10].b) / 3.0f;
-			e = sqrt(0.5f * (e / errorsPS.buffer_content[10].a));
-			std::cout << "errorsPS: " << e;
-			float ee = sqrt(errors.buffer_content[10] * 0.5f * 255 * 255);
-			std::cout << "error: " << ee;*/
-
-			//std::cout << "error is: " << err << std::endl;
-			//writeErrorToFile(path, iteration - 1, err);
 		}
 		if (iteration < 12100)
 		{
@@ -1068,7 +1036,6 @@ void Triangulator::drawV2_fin_diff(ID3D11DeviceContext* immediateContext, Render
 		}
 		if (iteration % 5 == 0 && iteration > 2 && triangleGoal > nTriangles)
 		{
-			//writeErrorToFile("E:\\Uni\\Masterarbeit\\csv\\papagei.csv");
 			//std::cout << triangleGoal << " " << nTriangles << std::endl;
 			insertionV3(d3d->getDevice(), immediateContext);
 			//insertionV3_tri_in_tri(d3d->getDevice(), immediateContext);
@@ -1094,8 +1061,10 @@ void Triangulator::drawV2_fin_diff(ID3D11DeviceContext* immediateContext, Render
 		errorsPS.clearUAV(immediateContext, { 0, 0, 0, 0 }); //changed here (added)
 
 		render(immediateContext, mode);
-		if (iteration % 5 == 6)
-			d3d->saveImageFromBackBuffer(filename);
+		if (iteration % 5 == 6) 
+		{
+			//d3d->saveImageFromBackBuffer(filename);
+		}
 	}
 	else if (mode == en_linear)
 	{
@@ -1456,7 +1425,7 @@ void Triangulator::computeGradients_cplg(ID3D11DeviceContext* immediateContext)
 
 void Triangulator::finite_differences(float plmi, ID3D11DeviceContext* immediateContext)
 {
-	immediateContext->CSSetShader(pFiniteDifferences, NULL, 0);//TODO: beide funktionen, updatePositions_fin_diff.hlsl, srvs und uavs, buffer für Farben von verschobenen Dreiecken
+	immediateContext->CSSetShader(pFiniteDifferences, NULL, 0);
 
 	ID3D11ShaderResourceView* up_srv[] = { positions.getShaderResourceView(), indices.getShaderResourceView(), image->getShaderResourceView() };
 	immediateContext->CSSetShaderResources(0, 3, up_srv);
@@ -1645,7 +1614,6 @@ void Triangulator::computeErrors_fin_diff(float plmi, ID3D11DeviceContext* immed
 	else
 		groupsX = groupsX / 32 + 1;
 	immediateContext->Dispatch(groupsX, 1, 1);											//dxA
-	//TODO: UpdateBuffer
 
 	ID3D11Buffer* clean_cb[] = { NULL };
 	immediateContext->CSSetConstantBuffers(0, 1, clean_cb);
@@ -2056,7 +2024,7 @@ void Triangulator::delaunay(ID3D11Device* device, ID3D11DeviceContext* immediate
 		edges_stack.push(i);
 		on_stack[i] = true;
 	}
-	//TODO: Rest von delaunay, --> copying GPU-CPU und CPU-GPU <--, edges mit neighbors statt mit neighbor_list
+	
 	while (!edges_stack.empty()) 
 	{
 		unsigned int current_edge_index = edges_stack.top();
@@ -2391,7 +2359,7 @@ void Triangulator::delaunay_error_conscious(ID3D11Device* device, ID3D11DeviceCo
 }
 
 bool Triangulator::eliminate_degenerate_triangles(ID3D11Device* device, ID3D11DeviceContext* immediateContext)
-{//TODO: da(?) bei delaunay war viel zu groß (evtl. (unsigned int) -1); deswegen alle edges ausgeben und schauen, ob irgendwo -1 geschrieben wird
+{
 	positions.gpuToCpu(immediateContext);
 
 	bool changes = true;
@@ -2834,7 +2802,7 @@ void Triangulator::updateDataOnGPU(ID3D11Device* device, ID3D11DeviceContext* im
 
 void Triangulator::createRegularGrid()
 {
-	triangleGoal = 10000;//1400; //for tomatoes without edge crossing avoidance (TODO)
+	triangleGoal = 10000;
 	//triangleGoal = 800;
 	int startingTriangleCount = 200;
 	//int startingTriangleCount = 1000;

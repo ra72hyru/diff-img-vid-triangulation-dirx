@@ -99,7 +99,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	imageView->create(d3d->getDevice());
 
 	std::ofstream fs;
-	fs.open("E:\\Uni\\Masterarbeit\\csv\\" + filename + "_fin_diff2.txt", std::ios::out | std::ios::app);
+	fs.open(filename + "_fin_diff2.txt", std::ios::out | std::ios::app);
 
 	auto start = std::chrono::high_resolution_clock::now();
 
@@ -123,8 +123,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		
 		//triangulator->draw(immediateContext, en_linear);
 		//triangulator->draw_fin_diff(immediateContext, en_constant);
-		triangulator->drawV2(immediateContext, en_constant);
-		//triangulator->drawV2_fin_diff(immediateContext, en_constant);
+		triangulator->drawV2(immediateContext, en_constant); // <-- this is the draw-function used for the thesis for Reynolds Transport Theorem
+		//triangulator->drawV2_fin_diff(immediateContext, en_constant); // <-- this is the draw-function used for the thesis for finite differences
 		//triangulator->drawV3(immediateContext, en_linear);
 
 		if (it % 5 == 0) 

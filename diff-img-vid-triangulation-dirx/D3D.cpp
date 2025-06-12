@@ -14,34 +14,6 @@ D3D::D3D(HWND hWnd) : phWnd(hWnd), pFactory(NULL),
 									pShaderResourceView_Backbuffer(NULL),
 									mViewport(D3D11_VIEWPORT())
 {
-	/*DXGI_SWAP_CHAIN_DESC sd = { 0 };
-	sd.BufferDesc.Width = 0;
-	sd.BufferDesc.Height = 0;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 0;
-	sd.BufferDesc.RefreshRate.Denominator = 0;
-	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-	sd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-
-	sd.SampleDesc.Count = 1;
-	sd.SampleDesc.Quality = 0;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-	sd.BufferCount = 1;
-
-	sd.OutputWindow = phWnd;
-	sd.Windowed = TRUE;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-	HRESULT hr;
-	hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_DEBUG, 
-										nullptr, 0, D3D11_SDK_VERSION, &sd, &pSwapChain, &pDevice, nullptr, &pImmediateContext);
-	if (!FAILED(hr))
-	{
-		ID3D11Resource* pBackBuffer = nullptr;
-		pSwapChain->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(&pBackBuffer));
-		pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView_Backbuffer);
-		pBackBuffer->Release();
-	}*/
 	
 }
 
@@ -201,11 +173,11 @@ void D3D::releaseSwapChain()
 void D3D::saveImageFromBackBuffer(std::string image_name)
 {
 	//taken from https://github.com/tobguent/image-triangulation/blob/master/demo/D3D.cpp
-	//std::wstring path = L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\";
-	std::wstring path = L"D:\\Masterarbeit\\";
+	
+	std::wstring path = L""; //add path to save a frame here
 	path += std::wstring(image_name.begin(), image_name.end()) + L"\\new\\rtt\\";
-	//std::string spath = "E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\" + image_name + "\\200\\";
-	std::string spath = "D:\\Masterarbeit\\" + image_name + "\\new\\rtt\\";
+
+	std::string spath = "" + image_name + "\\new\\rtt\\"; //same path as above, but as string not wstring
 	int i = 0;
 	bool writeable = false;
 
@@ -245,7 +217,6 @@ void D3D::saveImageFromBackBuffer(std::string image_name)
 			i++;
 	}
 
-	//HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatJpeg, L"E:\\Uni\\Masterarbeit\\ImagesFromBackbuffer\\test.jpg");
 	HRESULT hr = DirectX::SaveWICTextureToFile(pImmediateContext, pRenderTargetView_Texture, GUID_ContainerFormatBmp, path.c_str());
 	
 }

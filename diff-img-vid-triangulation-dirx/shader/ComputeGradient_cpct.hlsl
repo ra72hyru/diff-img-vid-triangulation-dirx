@@ -117,7 +117,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     
     gradABC = float2(0.0, 0.0);
     gradACB = float2(0.0, 0.0);
-    gradBCA = float2(0.0, 0.0);                                                             //TODO: zweite Schleife ergänzen, dritte Schleife, UpdatePositionsRTT.hlsl
+    gradBCA = float2(0.0, 0.0);                                                             
 
     float3 dims;
     image.GetDimensions(0, dims.x, dims.y, dims.z);
@@ -139,27 +139,6 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     last_pixel.z = B.x < C.x ? true : false; //test: (true, false, false, false)
     last_pixel.w = B.x > C.x ? true : false;
         
-    /*if (B.y <= C.y)
-    {
-        last_pixel.x = true;
-        last_pixel.y = false;
-    }
-    else
-    {
-        last_pixel.x = false;
-        last_pixel.y = true;
-    }
-    if (B.x <= C.x)
-    {
-        last_pixel.z = true;
-        last_pixel.w = false;
-    }
-    else
-    {
-        last_pixel.z = false;
-        last_pixel.w = true;
-    }*/
-    //TODO: test ohne abs bei gradients
     int test = 0;
     while (/*test < 5 &&*/ (curX != endX || curY != endY))
     {
@@ -369,7 +348,7 @@ void gradient_rtt(float3 tri_color, float2 A, float2 B, float2 C, float dx, floa
     }
     //if (curX < 0 || curY < 0)
       //  gradABC = 19283746;
-    //TODO: p - C nach den Schleifen
+
     img_col = image.Load(int3(min(dims.x - 1, curX), min(dims.y - 1, curY), 0)).rgb;
     err3 = pow(abs((img_col - tri_color)), 2);
     err = err3.x + err3.y + err3.z;
@@ -890,12 +869,6 @@ void main( uint DTid : SV_DispatchThreadID )
     
     gradient_rtt(tri_col, A, B, C, 1.0f, 0.0f, grABC, grACB, grBCA);
     //gradient_rtt(tri_col, A, B, C, 0.0f, 1.0f, grABC.y, grACB.y, grBCA.y);
-    float3 slow = float3(0,0,0);
-    for (int i = 0; i < 100000000; i++)
-    {
-        slow += image.Load(int3(1, 1, 1));
-
-    }
     if (isnan(grABC.x))
         grABC.x = 0;
     if (isnan(grACB.x))
@@ -908,10 +881,8 @@ void main( uint DTid : SV_DispatchThreadID )
         grACB.y = 0;
     if (isnan(grBCA.y))
         grBCA.y = 0;
-    
-    //grABC = float2(1, 2);
-    if (slow.x < 10000000)
-        gradients.Store2(DTid * 24, asint(grABC));
+
+    gradients.Store2(DTid * 24, asint(grABC));
     gradients.Store2(DTid * 24 + 8, asint(grACB));
     gradients.Store2(DTid * 24 + 16, asint(grBCA));
 }

@@ -1,3 +1,4 @@
+//THIS FILE IS EXPERIMENTAL AND NOT REALLY USED
 ByteAddressBuffer positions : register(t0);
 ByteAddressBuffer indices : register(t1);
 RWByteAddressBuffer coefficients : register(u0);
